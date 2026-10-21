@@ -46,7 +46,11 @@ def poison(global_state: dict, local_state: dict, attack: str) -> dict:
 
     * "sign-flip": push the model 5x in the OPPOSITE direction of learning
     * "noise":     send random Gaussian weights
+    * "none":      send the honestly trained weights (e.g. a data poisoner with
+                   wrong labels, combined with attack-inflate-examples)
     """
+    if attack == "none":
+        return local_state
     poisoned = {}
     for name, w_local in local_state.items():
         w_global = global_state[name]
@@ -57,7 +61,7 @@ def poison(global_state: dict, local_state: dict, attack: str) -> dict:
         elif attack == "noise":
             poisoned[name] = torch.randn_like(w_local)
         else:
-            raise ValueError(f"Unknown attack '{attack}'. Use 'sign-flip' or 'noise'.")
+            raise ValueError(f"Unknown attack '{attack}'. Use 'sign-flip', 'noise' or 'none'.")
     return poisoned
 
 

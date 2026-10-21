@@ -69,6 +69,11 @@ if want t4; then
     fed t4-clean-krum derma_iid5 "$R strategy='krum'"
     fed t4-noise-inflate100-fedavg derma_iid5 "$R $A attack='noise' attack-inflate-examples=100"
     fed t4-noise-inflate100-fedmedian derma_iid5 "$R $A attack='noise' attack-inflate-examples=100 strategy='fedmedian'"
+    # Data poisoning: client 4 has only wrong labels, sends honest weights, lies about its size
+    split derma_iid5_poison4 --dataset dermamnist --num-clients 5 --strategy iid --label-noise 0,0,0,0,1.0
+    fed t4-poison-fedavg derma_iid5_poison4 "$R"
+    fed t4-poison-inflate100-fedavg derma_iid5_poison4 "$R $A attack='none' attack-inflate-examples=100"
+    fed t4-poison-inflate100-fedmedian derma_iid5_poison4 "$R $A attack='none' attack-inflate-examples=100 strategy='fedmedian'"
     for sigma in 0.1 0.5 1.0 2.0; do
         fed "t4-dp$sigma" derma_iid5 "$R dp-noise-multiplier=$sigma"
     done
