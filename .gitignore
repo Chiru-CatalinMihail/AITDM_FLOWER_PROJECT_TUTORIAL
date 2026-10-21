@@ -7,7 +7,7 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Data (downloaded / generated – never commit patient data!)
-data/
+#data/
 
 # Run artefacts
 outputs/
