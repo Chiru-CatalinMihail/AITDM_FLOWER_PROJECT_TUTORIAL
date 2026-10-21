@@ -2,7 +2,7 @@
 
 Examples (run from the repository root, with the venv activated):
 
-    # Explain 12 random test images of a finished run
+    # Explain 12 random validation images (all clients) of a finished run
     python explainability/gradcam.py --run outputs/sim-dirichlet-20261021-133800
 
     # Only the mistakes, on client 2's local validation data, with Grad-CAM++
@@ -36,7 +36,7 @@ from pytorch_grad_cam import EigenCAM, GradCAM, GradCAMPlusPlus, HiResCAM, Score
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
-from aitdm_fl.task import load_npz_arrays, model_from_test_set
+from aitdm_fl.task import load_analysis_data, model_from_test_set
 
 METHODS = {
     "gradcam": GradCAM,
@@ -58,9 +58,10 @@ def get_arguments() -> argparse.Namespace:
     src.add_argument("--model", type=Path, help="path to a state_dict (.pt)")
     parser.add_argument("--partitions", type=Path,
                         help="partition folder (default: the one the run was trained on)")
-    parser.add_argument("--data", default="test",
-                        help="'test' (global test set) or 'client_<i>' "
-                             "(that client's validation data)")
+    parser.add_argument("--data", default="val",
+                        help="'val' = all clients' validation sets (default: diagnose here), "
+                             "'client_<i>' = one client, 'test' = global test set (final "
+                             "report only)")
     parser.add_argument("--select", choices=["all", "mistakes", "correct"], default="all")
     parser.add_argument("--true-class",
                         help="only images of this class: its number or (part of) its name, "
@@ -96,14 +97,6 @@ def get_arguments() -> argparse.Namespace:
     return args
 
 
-def load_images(partitions: Path, data: str) -> tuple[np.ndarray, np.ndarray]:
-    if data == "test":
-        return load_npz_arrays(partitions / "test.npz", "test")
-    if data.startswith("client_"):
-        return load_npz_arrays(partitions / f"{data}.npz", "val")
-    raise ValueError("--data must be 'test' or 'client_<i>'")
-
-
 def find_class(text: str, class_names: list[str] | None) -> int:
     """'4' -> 4; 'melanoma' -> index of the first class name containing it."""
     if text.isdigit():
@@ -137,7 +130,7 @@ def main() -> None:
     model.eval()
 
     # 2. Predictions on the chosen data
-    x, y = load_images(args.partitions, args.data)
+    x, y, _, _ = load_analysis_data(str(args.partitions), args.data)
     with torch.no_grad():
         preds = model(torch.from_numpy(x)).argmax(dim=1).numpy()
     correct = preds == y

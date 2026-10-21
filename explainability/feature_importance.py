@@ -33,7 +33,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from aitdm_fl.task import load_npz_arrays, model_from_test_set
+from aitdm_fl.task import load_analysis_data, model_from_test_set
 
 STAT_PREFIX = re.compile(r"^(mean|std|min|max)_")
 JOINT = re.compile(r"^(J\d+)[XYZ]$")
@@ -50,9 +50,10 @@ def get_arguments() -> argparse.Namespace:
     src.add_argument("--model", type=Path, help="path to a state_dict (.pt)")
     parser.add_argument("--partitions", type=Path,
                         help="partition folder (default: the one the run was trained on)")
-    parser.add_argument("--data", default="test",
-                        help="'test' (global test set) or 'client_<i>' "
-                             "(that client's validation data)")
+    parser.add_argument("--data", default="val",
+                        help="'val' = all clients' validation sets (default: diagnose here), "
+                             "'client_<i>' = one client, 'test' = global test set (final "
+                             "report only)")
     parser.add_argument("--group-by", choices=["joint", "column", "stat", "feature"],
                         help="shuffle features together per joint (J5 = all its X/Y/Z "
                              "statistics), per CSV column (J5X), per statistic (mean, std, "
@@ -138,14 +139,9 @@ def main() -> None:
     model.eval()
 
     # 2. Data
-    if args.data == "test":
-        x, y = load_npz_arrays(args.partitions / "test.npz", "test")
-    elif args.data.startswith("client_"):
-        x, y = load_npz_arrays(args.partitions / f"{args.data}.npz", "val")
-    else:
-        raise SystemExit("--data must be 'test' or 'client_<i>'")
+    x, y, _, tag = load_analysis_data(str(args.partitions), args.data)
     baseline = accuracy(model, x, y)
-    print(f"{args.data}: {len(y)} samples, accuracy {baseline:.3f}")
+    print(f"{tag}: {len(y)} samples, accuracy {baseline:.3f}")
 
     # 3. Shuffle every group of features and measure the accuracy drop
     groups: dict[str, list[int]] = {}

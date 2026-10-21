@@ -3,7 +3,7 @@ hardest examples (highest loss): step 2 of the iterative process in docs/05_grad
 
 Examples (run from the repository root, with the venv activated):
 
-    # Global test set
+    # All clients' validation data (default), with a per-client breakdown
     python explainability/error_analysis.py --run outputs/sim-dirichlet-20261021-133800
 
     # The hardest TRAINING examples of client 1 (candidates for wrong labels / artefacts)
@@ -32,7 +32,7 @@ import numpy as np
 import torch
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 
-from aitdm_fl.task import load_npz_arrays, model_from_test_set
+from aitdm_fl.task import load_analysis_data, model_from_test_set
 
 
 def get_arguments() -> argparse.Namespace:
@@ -46,8 +46,10 @@ def get_arguments() -> argparse.Namespace:
     src.add_argument("--model", type=Path, help="path to a state_dict (.pt)")
     parser.add_argument("--partitions", type=Path,
                         help="partition folder (default: the one the run was trained on)")
-    parser.add_argument("--data", default="test",
-                        help="'test' (global test set) or 'client_<i>'")
+    parser.add_argument("--data", default="val",
+                        help="'val' = all clients' validation sets (default: diagnose here), "
+                             "'client_<i>' = one client, 'test' = global test set (final "
+                             "report only)")
     parser.add_argument("--split", choices=["train", "val"], default="val",
                         help="for client_<i>: its training or validation data")
     parser.add_argument("--num-images", type=int, default=18,
@@ -76,14 +78,7 @@ def main() -> None:
     num_classes = len(class_names)
 
     # 1. Data and predictions
-    if args.data == "test":
-        x, y = load_npz_arrays(args.partitions / "test.npz", "test")
-        tag = "test"
-    elif args.data.startswith("client_"):
-        x, y = load_npz_arrays(args.partitions / f"{args.data}.npz", args.split)
-        tag = f"{args.data}_{args.split}"
-    else:
-        raise SystemExit("--data must be 'test' or 'client_<i>'")
+    x, y, owner, tag = load_analysis_data(str(args.partitions), args.data, args.split)
 
     model = model_from_test_set(str(args.partitions))
     model.load_state_dict(torch.load(args.model, map_location="cpu"))
@@ -113,6 +108,21 @@ def main() -> None:
         flag = "  <-- never predicted correctly" if support[c] and recall[c] == 0 else ""
         print(f"{class_names[c][:28]:<{width}}  {support[c]:>7}  {recall[c]:>6.2f}  "
               f"{precision[c]:>9.2f}  {f1[c]:>5.2f}  {confused}{flag}")
+
+    # 2b. Per client (pooled validation data): who does the global model fail?
+    per_client = {}
+    if owner is not None:
+        print(f"\n{'client':<8} samples  accuracy  balanced acc.")
+        for cid in np.unique(owner):
+            m = owner == cid
+            present = np.unique(y[m])
+            rec = [np.mean(preds[m & (y == c)] == c) for c in present]
+            per_client[int(cid)] = {"samples": int(m.sum()),
+                                    "accuracy": float(np.mean(preds[m] == y[m])),
+                                    "balanced_accuracy": float(np.mean(rec))}
+            r = per_client[int(cid)]
+            print(f"{cid:<8} {r['samples']:>7}  {r['accuracy']:>8.3f}  "
+                  f"{r['balanced_accuracy']:>13.3f}")
 
     # 3. Hardest examples = highest loss (confidently wrong first)
     hardest = np.argsort(-losses)[:args.num_images]
@@ -174,6 +184,7 @@ def main() -> None:
         "per_class": {class_names[c]: {"support": int(support[c]), "recall": float(recall[c]),
                                        "precision": float(precision[c]), "f1": float(f1[c])}
                       for c in labels},
+        "per_client": per_client,
         "confusion_matrix": cm.tolist(),
         "hardest": [{"index": int(i), "true": int(y[i]), "pred": int(preds[i]),
                      "loss": float(losses[i])} for i in hardest],
