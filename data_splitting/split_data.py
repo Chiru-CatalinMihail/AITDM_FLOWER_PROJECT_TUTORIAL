@@ -116,6 +116,11 @@ def get_arguments() -> argparse.Namespace:
     own.add_argument("--class-names",
                      help="comma-separated class names, in the order of the sorted labels "
                           "(only used for plots and reports)")
+    own.add_argument("--test-groups",
+                     help="comma-separated values of --group-col held out COMPLETELY as the "
+                          "global test set, e.g. --group-col Camera --test-groups 3: the "
+                          "test set then measures generalisation to an unseen camera / "
+                          "site / device (default: a random --test-fraction of the samples)")
     own.add_argument("--test-fraction", type=float, default=0.2,
                      help="fraction held out as global test set (when the data "
                           "has no official test split)")
@@ -159,6 +164,8 @@ def get_arguments() -> argparse.Namespace:
             parser.error("--input takes only one .npz file")
     if args.strategy == "group" and not args.group_col:
         parser.error("--strategy group needs --group-col")
+    if args.test_groups and args.dataset:
+        parser.error("--test-groups is for --input data; MedMNIST has an official test split")
     if args.out is None:
         args.out = REPO_ROOT / "data" / "partitions" / args.strategy
     return args
@@ -193,7 +200,7 @@ def load_npz(path: Path, args) -> dict:
     else:
         x_all, y_all = data[args.x_key], data[args.y_key].reshape(-1)
         groups_all = data[args.group_col].reshape(-1) if args.group_col else None
-        test_mask = np.random.default_rng(args.seed).random(len(y_all)) < args.test_fraction
+        test_mask = make_test_mask(len(y_all), groups_all, args)
         x_pool, y_pool = x_all[~test_mask], y_all[~test_mask]
         x_test, y_test = x_all[test_mask], y_all[test_mask]
         groups = groups_all[~test_mask] if groups_all is not None else None
@@ -232,8 +239,26 @@ def load_csv(paths: list[Path], args):
     labels = per_sample[args.label_col].to_numpy()
     groups = per_sample[args.group_col].to_numpy() if args.group_col else None
 
-    test_mask = np.random.default_rng(args.seed).random(len(sample_ids)) < args.test_fraction
+    test_mask = make_test_mask(len(sample_ids), groups, args)
     return df, sample_col, sample_ids, labels, groups, test_mask
+
+
+def make_test_mask(n: int, groups, args) -> np.ndarray:
+    """Which samples form the global test set: a random fraction, or (with
+    --test-groups) every sample of the given groups, which no client then sees."""
+    if not args.test_groups:
+        return np.random.default_rng(args.seed).random(n) < args.test_fraction
+    if groups is None:
+        sys.exit("ERROR: --test-groups needs --group-col")
+    wanted = {v.strip() for v in args.test_groups.split(",")}
+    as_text = np.array([str(g) for g in groups])
+    mask = np.isin(as_text, list(wanted))
+    if not mask.any() or mask.all():
+        sys.exit(f"ERROR: --test-groups {args.test_groups} must select some but not all "
+                 f"groups. Values of '{args.group_col}': {sorted(set(as_text.tolist()))}")
+    print(f"Test set = every sample of {args.group_col} in {sorted(wanted)} "
+          f"({mask.sum()} samples); the clients never see these groups")
+    return mask
 
 
 def select_feature_cols(df, args, sample_col: str) -> list[str]:
@@ -289,6 +314,23 @@ def partition(labels: np.ndarray, groups, args) -> list[np.ndarray]:
     if groups is None:
         sys.exit(f"ERROR: group column '{args.group_col}' not found in the data")
     return group_split(groups, n, seed=args.seed)
+
+
+def warn_missing_classes(parts, labels, num_classes: int, names: list[str], args) -> None:
+    """A class that no client trains on can never be predicted, but it is still in
+    the test set. Say so loudly instead of silently reporting a bad score."""
+    seen = set(np.unique(np.concatenate([labels[idx] for idx in parts]))) if parts else set()
+    missing = [c for c in range(num_classes) if c not in seen]
+    if not missing:
+        return
+    print("\nWARNING: no client has training data for class(es) "
+          + ", ".join(f"{c} ({names[c]})" for c in missing)
+          + ". The model cannot learn them, but they are still in the test set.")
+    if args.strategy == "pathological" and args.num_clients * args.classes_per_client < num_classes:
+        print(f"         With --strategy pathological, num-clients x classes-per-client "
+              f"({args.num_clients} x {args.classes_per_client}) must be >= the number of "
+              f"classes ({num_classes}) to cover them all.")
+    print()
 
 
 def train_val_split(indices: np.ndarray, val_fraction: float, seed: int):
@@ -404,6 +446,7 @@ def main() -> None:
     else:
         label_names = [str(c) for c in class_names]
     parts = partition(pool_labels, pool_groups, args)
+    warn_missing_classes(parts, pool_labels, num_classes, label_names, args)
 
     counts, client_info = [], []
     for cid, indices in enumerate(parts):
