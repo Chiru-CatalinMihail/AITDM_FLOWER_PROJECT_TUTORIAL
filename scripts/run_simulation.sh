@@ -21,7 +21,8 @@ PARTITIONS="$(abspath "${1:-$DEFAULT_PARTITIONS}")"
 EXTRA_CONFIG="${2:-}"
 check_partitions "$PARTITIONS"
 NUM_CLIENTS="$(num_clients_of "$PARTITIONS")"
-SAVE_DIR="$REPO_ROOT/outputs/sim-$(basename "$PARTITIONS")-$(date +%Y%m%d-%H%M%S)"
+# Results folder (SAVE_DIR=... to choose it, as experiments/run_seeds.py does)
+SAVE_DIR="${SAVE_DIR:-$REPO_ROOT/outputs/sim-$(basename "$PARTITIONS")-$(date +%Y%m%d-%H%M%S)}"
 
 # `flwr run .` starts a background "managed" SuperLink and keeps it alive.
 # Restart it so that it uses THIS virtual environment and settings.
