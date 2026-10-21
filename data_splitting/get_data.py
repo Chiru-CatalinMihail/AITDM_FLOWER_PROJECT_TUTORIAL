@@ -6,14 +6,17 @@ Examples (run from the repository root, with the venv activated):
     python data_splitting/get_data.py --medmnist dermamnist pneumoniamnist
     python data_splitting/get_data.py --medmnist dermamnist --size 64
     python data_splitting/get_data.py --har ~/Downloads/Demo_HAR.zip     # file from Moodle
+    python data_splitting/get_data.py --ntu ~/Downloads/nturgbd_skeletons_s001_to_s017.zip
 
 * MedMNIST (https://medmnist.com/) is public and downloaded from Zenodo.
   split_data.py --dataset ... also downloads it by itself; use this script to get
   it in advance (e.g. before working offline).
-* The HAR skeleton data is a curated subsample of NTU RGB+D, distributed to the
-  course participants on Moodle. Its licence does not allow public redistribution,
-  so it is never part of the repository: download the zip from Moodle and install it
-  here.
+* The HAR skeleton data is a subsample of NTU RGB+D. Its Release Agreement does not
+  allow redistribution, so it is never part of the repository. Two ways to get it:
+  - --har: install the course subsample distributed on Moodle;
+  - --ntu: build it yourself from the official skeleton archive, after registering
+    at https://rose1.ntu.edu.sg/dataset/actionRecognition/ (see ntu.py): choose the
+    actions (default: the course preset) and the cameras (default: all 3).
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ntu  # noqa: E402
 from split_data import MEDMNIST_2D, REPO_ROOT, download_medmnist  # noqa: E402
 
 HAR_DIR = REPO_ROOT / "data" / "raw" / "har"
@@ -47,8 +51,26 @@ def get_arguments() -> argparse.Namespace:
                         help="MedMNIST image size (64 / 128 / 224 are much bigger)")
     parser.add_argument("--har", type=Path,
                         help="the HAR zip downloaded from Moodle (or the unpacked folder)")
+    ntu_group = parser.add_argument_group("build the HAR data from the official NTU RGB+D archive")
+    ntu_group.add_argument("--ntu", type=Path, metavar="ARCHIVE",
+                           help="nturgbd_skeletons_s001_to_s017.zip (or its unpacked folder), "
+                                "downloaded by you after accepting the NTU Release Agreement")
+    ntu_group.add_argument("--actions", nargs="+", default=["course"],
+                           help="'course' (the 5 course actions: "
+                                + ", ".join(f"A{a:03d}" for a in ntu.PRESETS["course"])
+                                + ") or NTU action ids, e.g. A008 A009 A043 (label = position)")
+    ntu_group.add_argument("--cameras", type=int, nargs="+", default=[1, 2, 3],
+                           choices=[1, 2, 3], help="NTU cameras to keep")
+    ntu_group.add_argument("--bodies", choices=["main", "all"], default="main",
+                           help="'main' = only the actor; 'all' = every detected body as its own "
+                                "rows (like the Moodle files; mixes people in some sequences)")
+    ntu_group.add_argument("--out", type=Path, default=HAR_DIR, help="output folder")
+    ntu_group.add_argument("--force", action="store_true", help="replace existing CSV files")
+    ntu_group.add_argument("--match", type=Path, metavar="CSV_DIR",
+                           help="instead of building: find which NTU actions the labelled "
+                                "CSV files in CSV_DIR contain (e.g. the Moodle files)")
     args = parser.parse_args()
-    if not (args.list or args.medmnist or args.har):
+    if not (args.list or args.medmnist or args.har or args.ntu):
         parser.print_help()
         sys.exit(1)
     return args
@@ -114,6 +136,16 @@ def main() -> None:
         print(f"{name} ({args.size} px): {path} ({path.stat().st_size / 1e6:.1f} MB)")
     if args.har:
         install_har(args.har)
+    if args.ntu:
+        if not args.ntu.expanduser().exists():
+            sys.exit(f"ERROR: {args.ntu} does not exist")
+        archive = args.ntu.expanduser()
+        if args.match:
+            ntu.match(archive, args.match)
+        else:
+            ntu.build(archive, ntu.parse_actions(args.actions), sorted(args.cameras), args.out,
+                      REPO_ROOT / "data" / "raw" / "ntu_missing_skeletons.txt", args.force,
+                      bodies=args.bodies)
 
 
 if __name__ == "__main__":
