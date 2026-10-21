@@ -55,7 +55,13 @@ flowchart LR
    and `num-examples`.
 3. The strategy aggregates them (FedAvg: weighted average by `num-examples`).
 4. The ClientApps evaluate the new global model on their local validation data (`@app.evaluate()`).
-5. The ServerApp evaluates the new global model on the held-out **global test set** (`global_evaluate`).
+   This is how you follow the training: `aggregate_evaluate` in the log.
+5. After the **last** round, the ServerApp evaluates the final model once on the held-out
+   **global test set** (`global_evaluate`). The test set is only for the final number: if you
+   looked at it every round and adjusted your settings, it would no longer be a fair test.
+
+The clients never see the test set. A client only has its own `client_<i>.npz`; the server
+tells it the number of classes.
 
 ---
 
@@ -105,14 +111,21 @@ flwr run . --stream \
 ### Sample output
 
 ```text
-[round 0] global test: loss=1.9497, accuracy=0.1890, balanced_accuracy=0.1450, f1_macro=0.0791
 INFO :      [ROUND 1/5]
-INFO :      aggregate_train: Received 3 results and 0 failures
-INFO :      aggregate_evaluate: Received 3 results and 0 failures
-[round 1] global test: loss=1.2170, accuracy=0.6763, balanced_accuracy=0.1712, f1_macro=0.1593
+INFO :      aggregate_train: Received 5 results and 0 failures
+INFO :      	└──> Aggregated MetricRecord: {'train_loss': 0.9296485804148229, ...}
+INFO :      aggregate_evaluate: Received 5 results and 0 failures
+INFO :      	└──> Aggregated MetricRecord: {'eval_loss': 0.9466..., 'eval_acc': 0.6780..., 'eval_bal_acc': 0.1918..., ...}
 ...
-Saved final model and metrics to .../outputs/sim-dirichlet-20261021-132538
+INFO :      [ROUND 5/5]
+INFO :      	└──> Aggregated MetricRecord: {'eval_loss': 0.7719..., 'eval_acc': 0.715, 'eval_bal_acc': 0.3516..., ...}
+[round 5] global test: loss=0.7534, accuracy=0.7302, balanced_accuracy=0.3625, f1_macro=0.3779
+Saved final model and metrics to .../outputs/sim-iid-20261021-232538
 ```
+
+`eval_*` are the clients' validation metrics (averaged, weighted by client size), printed every
+round. The `global test` line appears once, at the end. For learning curves of the test set in
+your report, add `test-every-round=true`, but never choose settings by looking at them.
 
 ---
 
@@ -245,8 +258,9 @@ In tmux, switch windows with `Ctrl+b n` / `Ctrl+b p` (`Ctrl+b w` lists them).
 ### Running on several machines
 
 1. Server machine: `HOST=0.0.0.0 bash scripts/start_superlink.sh` (open port 8000 in the firewall).
-2. Each client machine (with the repo, the venv and its own `client_<i>.npz`):
-   `bash scripts/start_supernode.sh <i> data/partitions/dirichlet <SERVER_IP>:8000`
+2. Each client machine (with the repo, the venv and **only its own** `client_<i>.npz`, e.g. in
+   `data/partitions/dirichlet/`): `bash scripts/start_supernode.sh <i> data/partitions/dirichlet <SERVER_IP>:8000`.
+   The client does not need `test.npz` or the other clients' files; only the server machine has them.
 3. Any machine: change `address` in the `local-deployment` connection to `<SERVER_IP>:8000` and run `submit_run.sh`.
 
 > `--insecure` means no TLS, which is fine for our introductory laboratory. 
@@ -273,16 +287,20 @@ Change the defaults in `fl_app/pyproject.toml`, or override them per run with
 | `proximal-mu`, `server-momentum`, `server-lr`, `trim-beta`, `num-malicious`, `qfedavg-q`, `qfedavg-client-lr` | see `pyproject.toml` | strategy hyperparameters |
 | `dp-noise-multiplier`, `dp-clipping-norm`, `dp-delta` | `0.0`, `1.0`, `1e-5` | central differential privacy (0 = off), ε is reported |
 | `malicious-clients`, `attack` | `""`, `"sign-flip"` | turn clients into attackers (robustness experiments) |
+| `attack-inflate-examples` | `1` | attackers multiply the `num-examples` they report ([tutorial 4](04_aggregation_strategies.md#attackers-can-also-lie-about-their-size)) |
 | `fraction-train` / `fraction-evaluate` | `1.0` | Fraction of clients sampled each round |
 | `min-nodes` | `3` | The server waits for this many clients (the scripts set it to the number of clients) |
+| `seed` | `1` | Seeds the initial model, the clients' shuffling / augmentation and the DP noise: the same seed gives the same result |
+| `test-every-round` | `false` | `true` = evaluate the test set every round (for curves only), else only after the last round |
 
 ### Outputs
 
-`outputs/<run>/metrics.json` contains, for every round:
+`outputs/<run>/metrics.json` contains:
 
-* `evaluate_metrics_serverapp`: global test set metrics (accuracy, **balanced accuracy, macro-F1**),
-* `evaluate_metrics_clientapp`: weighted average of the clients' local validation metrics,
-* `train_metrics_clientapp`: average training loss.
+* `evaluate_metrics_clientapp`: per round, the weighted average of the clients' local validation metrics,
+* `train_metrics_clientapp`: per round, the average training loss,
+* `evaluate_metrics_serverapp`: the global test set metrics (accuracy, **balanced accuracy,
+  macro-F1**) after the last round.
 
 Load the weights for analysis (Grad-CAM, robustness tests, ...) like this:
 
@@ -292,6 +310,51 @@ from aitdm_fl.task import model_from_test_set
 model = model_from_test_set("data/partitions/dirichlet")
 model.load_state_dict(torch.load("outputs/<run>/final_model.pt"))
 ```
+
+---
+
+## Centralised baseline and seeds
+
+Two things every report needs:
+
+**1. A centralised baseline** (Stage 1): the same model, trained on the union of all clients'
+training data, as if the data could be pooled in one place.
+
+```bash
+python experiments/centralised.py --partitions data/partitions/dirichlet --epochs 10
+```
+
+**2. Several seeds.** One run is one sample: differences of a few points between two runs can be
+pure chance. Every run is seeded (`seed` in the run config), so a result can be reproduced exactly,
+and `run_seeds.py` runs seeds 1, 2, 3 for you:
+
+```bash
+python experiments/run_seeds.py --partitions data/partitions/dirichlet --config "num-server-rounds=10" --name fedavg
+python experiments/run_seeds.py --partitions data/partitions/dirichlet --config "num-server-rounds=10 loss-weighting='balanced'" --name fedavg-balanced
+python experiments/summarize.py outputs/experiments/central-dirichlet outputs/experiments/fedavg outputs/experiments/fedavg-balanced
+```
+
+```text
+| Experiment | Val acc. | Val bal. acc. | Val macro-F1 | Worst client val acc. |
+|---|---|---|---|---|
+| central-dirichlet | 0.724 ± 0.015 | 0.458 ± 0.008 | 0.426 ± 0.056 | 0.585 ± 0.016 |
+| fedavg | 0.719 ± 0.003 | 0.293 ± 0.033 | 0.300 ± 0.026 | 0.467 ± 0.032 |
+| fedavg-balanced | 0.643 ± 0.047 | 0.422 ± 0.030 | 0.364 ± 0.052 | 0.439 ± 0.020 |
+```
+
+(DermaMNIST, the quick-start split. The federated model matches the centralised accuracy, but not its balanced accuracy, and its worst client is far behind: [tutorial 5](05_gradcam.md#the-iterative-process-from-explanation-to-a-better-model) works through this example.)
+
+Both scripts evaluate every model in the same way (`experiments/evaluation.py`):
+
+* **validation**: all clients' validation sets together, plus one number per client. Compare and
+  choose your settings on these.
+* **test**: the global test set. Add `--with-test` to `summarize.py` only for the final table of
+  your report, once you have decided.
+
+Small differences of results between machines (or between simulation and deployment) remain
+possible: floating-point sums depend on the order in which client updates arrive.
+
+`bash experiments/reproduce_tutorials.sh` re-creates every number in these tutorials this way.
 
 ---
 
@@ -315,7 +378,7 @@ The absolute path towards all those files is `fl_app/aitdm_fl/`.
 
 | Symptom | Cause / fix |
 |---|---|
-| Run hangs after `[round 0] global test ...` | Fewer clients than `min-nodes`. In simulation pass `--federation-config "num-supernodes=N"`. In deployment start all N SuperNodes |
+| Run hangs with `Waiting for nodes to connect: 2 connected (minimum required: 3)` | Fewer clients than `min-nodes`. In simulation pass `--federation-config "num-supernodes=N"`. In deployment start all N SuperNodes |
 | `Address already in use` (8000, 9094, ...) | An old SuperLink or SuperNode is still running: `bash scripts/stop_flower.sh` |
 | `FileNotFoundError: .../test.npz` | Run `split_data.py` first and pass an **absolute** `partitions-dir` |
 | First run downloads GBs / "Installing application dependencies..." | Recent Flower versions install the app dependencies into a separate env per run. Our scripts disable this with `FLWR_DISABLE_RUNTIME_DEPENDENCY_INSTALLATION=1` / `--disable-runtime-dependency-installation` because the venv already has everything. If you started `flwr run .` yourself before, run `bash scripts/stop_flower.sh` once |

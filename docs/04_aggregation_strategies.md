@@ -108,6 +108,7 @@ The ClientApp can turn selected clients into attackers (`poison()` in `client_ap
 |---|---|
 | `sign-flip` | $w_t - 5 \, \Delta^k$ (pushes the model 5× in the wrong direction) |
 | `noise` | random Gaussian weights |
+| `none` | its honestly trained weights (combine with a wrong-label client or `attack-inflate-examples`, see [below](#attackers-can-also-lie-about-their-size)) |
 
 ```bash
 # Simulation: partition ids of the attackers
@@ -123,22 +124,67 @@ For *data* poisoning (wrong labels instead of wrong weights), use
 
 ### Experiment: 1 attacker out of 5 clients
 
-DermaMNIST, IID split over 5 clients (`--num-clients 5 --strategy iid --out data/partitions/iid5`),
-5 rounds, client 4 is malicious:
+DermaMNIST, IID split over 5 clients (`--num-clients 5 --strategy iid`), 5 rounds, client 4 is
+malicious. Mean ± std over seeds 1, 2, 3 (`bash experiments/reproduce_tutorials.sh t4`):
 
-| Attack | Strategy | Accuracy | Balanced acc. | Macro-F1 |
+| Attack | Strategy | Val bal. acc. | Test acc. | Test bal. acc. | Test macro-F1 |
+|---|---|---|---|---|---|
+| none | FedAvg | 0.312 ± 0.041 | 0.726 ± 0.005 | 0.334 ± 0.031 | 0.352 ± 0.028 |
+| none | Krum ($f = 1$) | 0.300 ± 0.008 | 0.707 ± 0.008 | 0.315 ± 0.022 | 0.347 ± 0.013 |
+| sign-flip | FedAvg | 0.157 ± 0.017 | **0.034 ± 0.001** | 0.149 ± 0.009 | 0.014 ± 0.002 |
+| sign-flip | FedMedian | 0.309 ± 0.006 | 0.717 ± 0.004 | 0.332 ± 0.018 | 0.356 ± 0.017 |
+| sign-flip | FedTrimmedAvg ($\beta = 0.2$) | 0.301 ± 0.009 | 0.717 ± 0.008 | 0.324 ± 0.029 | 0.349 ± 0.029 |
+| sign-flip | Krum ($f = 1$) | 0.321 ± 0.030 | 0.714 ± 0.001 | 0.343 ± 0.027 | 0.354 ± 0.006 |
+| noise | FedAvg | 0.130 ± 0.013 | 0.136 ± 0.089 | 0.138 ± 0.018 | 0.056 ± 0.033 |
+| noise | FedMedian | 0.303 ± 0.020 | 0.725 ± 0.003 | 0.338 ± 0.014 | 0.363 ± 0.003 |
+| noise | Krum ($f = 1$) | 0.321 ± 0.030 | 0.714 ± 0.001 | 0.343 ± 0.027 | 0.354 ± 0.006 |
+
+* **One attacker out of five destroys FedAvg**, on every metric.
+* **The robust rules keep both accuracy and balanced accuracy at the attack-free level**: every
+  difference to the first row is smaller than the spread between seeds.
+* **Krum has the same numbers under both attacks.** That is not a coincidence: Krum discards the
+  attacker in every round and then *selects* one honest client's model. That choice no longer
+  depends on what the attacker sent, so with the same seed the result is identical.
+* **Is Krum with an attacker "better than no attack"?** Its balanced accuracy (0.343) is higher than
+  clean FedAvg (0.334), but the difference is far smaller than the seed-to-seed spread (± 0.03): it
+  is noise, not an effect. A single run can easily suggest such a "finding", which is why every
+  number here is a mean over seeds. Krum pays a small, consistent price in accuracy instead
+  (0.707–0.714 vs. 0.726): it keeps **one** client's model per round, trained on a fifth of the
+  data, instead of averaging all five.
+
+### Attackers can also lie about their size
+
+FedAvg weights every client by the `num-examples` *the client itself reports*. Nobody checks it.
+A data-poisoning client (here: client 4 with 100 % wrong labels, `--label-noise 0,0,0,0,1.0`,
+sending its honestly trained weights) is diluted by four honest clients, unless it claims to have
+100× more data:
+
+```bash
+python data_splitting/split_data.py --dataset dermamnist --num-clients 5 --strategy iid \
+    --label-noise 0,0,0,0,1.0 --out data/partitions/iid5_poison4
+bash scripts/run_simulation.sh data/partitions/iid5_poison4 \
+    "malicious-clients='4' attack='none' attack-inflate-examples=100"
+```
+
+| Client 4 | Strategy | Val bal. acc. | Test acc. | Test bal. acc. |
 |---|---|---|---|---|
-| none | FedAvg | 0.727 | 0.332 | 0.349 |
-| sign-flip | FedAvg | **0.025** | 0.144 | 0.019 |
-| sign-flip | FedMedian | 0.717 | 0.292 | 0.316 |
-| sign-flip | FedTrimmedAvg ($\beta = 0.2$) | 0.717 | 0.312 | 0.344 |
-| sign-flip | Krum ($f = 1$) | 0.707 | 0.284 | 0.300 |
-| noise | FedAvg | 0.448 | 0.129 | 0.118 |
-| noise | Krum ($f = 1$) | 0.691 | 0.438 | 0.426 |
+| honest (no poisoning) | FedAvg | 0.312 ± 0.041 | 0.726 ± 0.005 | 0.334 ± 0.031 |
+| 100 % wrong labels, reports its true size | FedAvg | 0.371 ± 0.012 | 0.706 ± 0.010 | 0.378 ± 0.002 |
+| 100 % wrong labels, reports **100× its size** | FedAvg | 0.101 ± 0.020 | **0.055 ± 0.016** | 0.117 ± 0.009 |
+| 100 % wrong labels, reports 100× its size | FedMedian | 0.354 ± 0.023 | 0.722 ± 0.006 | 0.366 ± 0.016 |
 
-One attacker out of five completely destroys FedAvg.
+* **Honest about its size, the poisoner is diluted** by the four honest clients: accuracy drops by 2
+  points. (Its balanced accuracy even rises a little, because the wrong labels push the model away
+  from always predicting the majority class. That is not a defence!)
+* **Lying about its size, the same client destroys FedAvg**, without sending a single unusual weight:
+  100× the size means ~96 % of the weight in every average.
+* **FedMedian (and Krum, FedTrimmedAvg) ignore the reported sizes**, so the lie has no effect: with
+  the noise attack, FedMedian gives *exactly* the same numbers with and without inflation.
 
-All three robust rules stay close to the attack-free baseline.
+Lesson: in FedAvg, the weights are part of the attack surface. A server should not trust
+self-reported sizes (cap them, check them against what is plausible, or use equal weights, as
+DP-FedAvg does).
+
 
 ## 4. Fairness: q-FedAvg (`qfedavg`)
 
@@ -183,14 +229,20 @@ Other strategies still get the noise, but without accounting; a `[DP]` message t
 
 Same setup as [above](#experiment-1-attacker-out-of-5-clients) (5 IID clients, 5 rounds, $C = 1.0$, $\delta = 10^{-5}$):
 
-| $\sigma$ (noise multiplier) | $\varepsilon$ after 5 rounds | Accuracy | Macro-F1 |
-|---|---|---|---|
-| 0 (no DP) | $\infty$ | 0.727 | 0.349 |
-| 0.1 | 354.9 | 0.689 | 0.318 |
-| 0.5 | 30.1 | 0.160 | 0.125 |
-| 1.0 | 12.3 | 0.088 | 0.056 |
-| 2.0 | 5.4 | 0.116 | 0.052 |
+| $\sigma$ (noise multiplier) | $\varepsilon$ after 5 rounds | Val bal. acc. | Test acc. | Test macro-F1 |
+|---|---|---|---|---|
+| 0 (no DP) | $\infty$ | 0.312 ± 0.041 | 0.726 ± 0.005 | 0.352 ± 0.028 |
+| 0.1 | 354.9 | 0.274 ± 0.014 | 0.683 ± 0.019 | 0.282 ± 0.011 |
+| 0.5 | 30.1 | 0.140 ± 0.006 | 0.261 ± 0.266 | 0.084 ± 0.041 |
+| 1.0 | 12.3 | 0.153 ± 0.024 | 0.245 ± 0.341 | 0.068 ± 0.051 |
+| 2.0 | 5.4 | 0.147 ± 0.005 | 0.237 ± 0.363 | 0.057 ± 0.054 |
 
+(Mean ± std over seeds 1, 2, 3. $\varepsilon$ is the same for every seed: it depends only on
+$\sigma$, the number of rounds and of clients, not on the data. The huge spread of the test
+accuracy for $\sigma \geq 0.5$ has a simple cause: the noise pushes the model to predict mostly
+one class (39–98 % of all images), and *which* class depends on the seed. With seed 2 it is the
+majority class (nevi), so accuracy looks fine (0.57–0.66); with seeds 1 and 3 it is a rare class
+(0.02–0.11). Balanced accuracy and macro-F1 show that all of them are useless.)
 
 **The privacy–utility trade-off is brutal with few clients.** The only setting that keeps a useful model has $\varepsilon \approx 355$, which promises essentially nothing; $1 \leq \varepsilon \leq 10$ (the range usually called meaningful) destroys the model.
 

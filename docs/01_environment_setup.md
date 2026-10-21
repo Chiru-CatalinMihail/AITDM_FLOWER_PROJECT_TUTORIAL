@@ -63,14 +63,14 @@ The `scripts/*.sh` files activate `.venv` for you, so you can run them directly.
 
 The Flower app is the Python package `aitdm_fl`, inside the `fl_app/` folder of the repository.
 These are the files you will change during the project (paths from the repository root,
-`AITDM-FL-Starter/`):
+`AITDM_FLOWER_PROJECT_TUTORIAL/`):
 
 | File | Full path | What is in it |
 |---|---|---|
-| `task.py` | `AITDM-FL-Starter/fl_app/aitdm_fl/task.py` | The model (`build_model()`, `build_mlp()`), data loading, `train()` and `evaluate()`. It contains no Flower code, so you can reuse it for your centralised baseline |
-| `server_app.py` | `AITDM-FL-Starter/fl_app/aitdm_fl/server_app.py` | The **server**: aggregation strategy (`build_strategy()`), differential privacy, global evaluation, and saving `final_model.pt` + `metrics.json` |
-| `client_app.py` | `AITDM-FL-Starter/fl_app/aitdm_fl/client_app.py` | The **client**: local training / evaluation on one partition, plus the optional attacker |
-| `pyproject.toml` | `AITDM-FL-Starter/fl_app/pyproject.toml` | App settings and the default run configuration (rounds, learning rate, strategy, ...) |
+| `task.py` | `AITDM_FLOWER_PROJECT_TUTORIAL/fl_app/aitdm_fl/task.py` | The model (`build_model()`, `build_mlp()`), data loading, `train()` and `evaluate()`. It contains no Flower code, so you can reuse it for your centralised baseline |
+| `server_app.py` | `AITDM_FLOWER_PROJECT_TUTORIAL/fl_app/aitdm_fl/server_app.py` | The **server**: aggregation strategy (`build_strategy()`), differential privacy, global evaluation, and saving `final_model.pt` + `metrics.json` |
+| `client_app.py` | `AITDM_FLOWER_PROJECT_TUTORIAL/fl_app/aitdm_fl/client_app.py` | The **client**: local training / evaluation on one partition, plus the optional attacker |
+| `pyproject.toml` | `AITDM_FLOWER_PROJECT_TUTORIAL/fl_app/pyproject.toml` | App settings and the default run configuration (rounds, learning rate, strategy, ...) |
 
 To print the **absolute** paths on your machine (they depend on where you cloned the
 repository), run this with the venv activated:
@@ -80,8 +80,8 @@ python -c "import aitdm_fl.task as t, aitdm_fl.server_app as s; print(t.__file__
 ```
 
 ```text
-/home/<you>/AITDM-FL-Starter/fl_app/aitdm_fl/task.py
-/home/<you>/AITDM-FL-Starter/fl_app/aitdm_fl/server_app.py
+/home/<you>/AITDM_FLOWER_PROJECT_TUTORIAL/fl_app/aitdm_fl/task.py
+/home/<you>/AITDM_FLOWER_PROJECT_TUTORIAL/fl_app/aitdm_fl/server_app.py
 ```
 
 Because the app is installed in editable mode ([step 5 above](#one-command-install)), Python always uses these files

@@ -37,20 +37,27 @@ Train a model first; every run saves `outputs/<run>/final_model.pt`. Then:
 
 ```bash
 source .venv/bin/activate
-bash scripts/run_simulation.sh data/partitions/iid "num-server-rounds=10 local-epochs=2"
+bash scripts/run_simulation.sh data/partitions/dirichlet "num-server-rounds=10"
 
-python explainability/gradcam.py --run outputs/<run>          # 12 random test images
+python explainability/gradcam.py --run outputs/<run>          # 12 random validation images
 ```
 
-The script reads the model and the partition folder it was trained on from the run folder.
+The script reads the model and the partition folder it was trained on from the run folder. By
+default it explains images from the **clients' validation sets** (all clients together): that is
+the data to analyse and improve a model on. The global test set stays untouched until your final
+numbers (`--data test` is possible, and reminds you of that).
 
 It writes a PNG next to the model: the input on top, the heat map below, and the true and predicted class in the title (<span style="color:green">Green</span> = correct, <span style="color:red">Red</span> = wrong).
 
 ![Grad-CAM, layer 1](images/gradcam_layer1.png)
 
-When the model is right, the heat map usually sits on the lesion.
+(All figures: the quick-start split, DermaMNIST 28 px, FedAvg, 10 rounds, seed 1.)
 
-On the first image it is **wrong**, and the heatmap sits on the background in the corners. That is a hint the model used the wrong evidence.
+Look at where the high values are: **mostly around the lesion and at the image borders, rarely on
+the lesion itself**, also for correct predictions. At 28 px with a 7×7 map this does not tell you
+whether the model uses the lesion's outline, its contrast to the skin, or the skin itself, but it
+is a clear question to investigate (bigger images below, and the
+[iterative process](#the-iterative-process-from-explanation-to-a-better-model)).
 
 ### Options
 
@@ -58,7 +65,7 @@ On the first image it is **wrong**, and the heatmap sits on the background in th
 |---|---|---|
 | `--run outputs/<run>` | | run folder (`final_model.pt` + `metrics.json`) |
 | `--model x.pt --partitions dir` | | any other model, e.g. your centralised baseline |
-| `--data` | `test` | `test` = global test set, `client_<i>` = that client's validation data |
+| `--data` | `val` | `val` = all clients' validation sets, `client_<i>` = one client's validation data, `test` = global test set (final report only) |
 | `--select` | `all` | `all`, `mistakes` or `correct` |
 | `--num-images` | `12` | |
 | `--method` | `gradcam` | `gradcam`, `gradcam++`, `hirescam`, `scorecam`, `eigencam` |
@@ -92,23 +99,24 @@ only 4×4 pixels:
 
 ![Grad-CAM, layer 2, mistakes](images/gradcam_layer2_mistakes.png)
 
-These are the model's **mistakes** on `net.layer_2`. The coarse maps often sit on the border or the background instead of the lesion.
+These are the model's **mistakes** on `net.layer_2`. The 4×4 maps can only point at a quarter of
+the image, and most of them sit on a border or a corner, away from the lesion.
 
 **Want sharper maps? Use bigger images.** MedMNIST+ comes in 64, 128 and 224 px, and the splitting tool downloads them with `--size`.
 
 The model adapts to the image size automatically:
 
 ```bash
-python data_splitting/split_data.py --dataset dermamnist --size 64 --num-clients 3 --strategy iid --out data/partitions/iid64
-bash scripts/run_simulation.sh data/partitions/iid64 "num-server-rounds=3 local-epochs=2"
+python data_splitting/split_data.py --dataset dermamnist --size 64 --num-clients 3 --strategy dirichlet --alpha 0.3 --out data/partitions/dirichlet64
+bash scripts/run_simulation.sh data/partitions/dirichlet64 "num-server-rounds=10 loss-weighting='balanced'"
 python explainability/gradcam.py --run outputs/<run> --num-images 6
 ```
 
 ![Grad-CAM, 64 px](images/gradcam_64px.png)
 
-At 64 px `net.layer_1` is 16×16, so lesion shapes and even hair become visible in the
-explanation. Notice the bright regions at the **image borders** and corners on several images:
-exactly the kind of shortcut you should investigate. (64 px is about 4× slower to train than 28
+At 64 px `net.layer_1` is 16×16, so the maps are much finer, and hair becomes visible in the images.
+The high values are still mostly on the **skin and the image borders**, with one map on the
+lesion: exactly the kind of possible shortcut you should investigate. (64 px is about 4× slower to train than 28
 px; 224 px needs a GPU and a deeper network such as `monai.networks.nets.DenseNet121` in `build_model()`.)
 
 ---
@@ -126,7 +134,10 @@ python explainability/gradcam.py --run outputs/<run> --untrained
 
 ![Grad-CAM, untrained model](images/gradcam_untrained.png)
 
-Same 12 images as the first figure. Some maps of the untrained network *also* cover the lesion, because random filters still react to a dark blob on light skin.
+Same 12 images as the first figure. The untrained network highlights the **top edge** of almost
+every image, whatever is in it: an artefact of the architecture, not an explanation. The trained
+maps look clearly different (around the lesion, varying between images), so they do reflect
+something the model learned.
 
 Only differences that appear **consistently** between the trained and untrained maps can be credited to what the model learned.
 **Report this check!** In a paper, reviewers look for this comparison!
@@ -138,7 +149,8 @@ Only differences that appear **consistently** between the trained and untrained 
 * **Right for the right reasons?** On correct predictions, is the   lesion highlighted, or the image border, a ruler, hair, a vignette or the skin colour? Background "shortcuts" are a classic failure in a lot of medical models.
 * **Mistakes:** run `--select mistakes`. Do the errors share a pattern (low contrast, very small lesions, a specific class)? This feeds directly into data augmentation or cleaning, see [the iterative process](#the-iterative-process-from-explanation-to-a-better-model) below.
 * **Fairness:** compare explanations across subgroups, e.g. skin tones or the image sources/clients. A model that looks at different evidence for different groups is a red flag.
-* **Quantify, don't only show pictures:** with segmentation masks, measure how much of the heatmap falls inside the lesion (IoU), averaged over the test set. **Cherry-picked examples are not evidence.**
+* **Quantify, don't only show pictures:** with segmentation masks, measure how much of the heatmap falls inside the lesion (IoU), averaged over the validation data. **Cherry-picked examples are not evidence.**
+* **Don't over-read the maps.** At 28 px the default layer gives a 7×7 map that is upsampled to the image: a heat map shows where the evidence *roughly* is, not which pixels mattered. Treat what you see as a hypothesis, check it against the [untrained sanity check](#sanity-check-is-the-explanation-about-the-model-at-all), and confirm it with numbers (e.g. bigger images, masking the region and measuring the change).
 
 ### Federated-learning specific ideas
 
@@ -171,10 +183,18 @@ flowchart LR
 | 3. Look and act | **(a)** A class is never learned → get more data for it, or make its mistakes cost more (class-weighted loss).<br>**(b)** Some examples always have a high loss → look at them: wrong label, artefact, or genuinely hard? Find an augmentation that separates them from the class they are confused with.<br>**(c)** The task needs finer detail than the network sees → bigger images or a deeper network.<br>**(d)** Nothing above helps for some examples → remove them from training and report it. | `gradcam.py --select mistakes --true-class ...`, `loss-weighting='balanced'`, `--size 64`, `build_model()` |
 | 4. Retrain and compare | Did the change help **the problem you targeted**, not only the average? | the same tools on the new run |
 
-If a state-of-the-art model exists for your data, run it on your test set too: the examples
-*it* gets wrong are a good list of genuinely hard cases.
+If a state-of-the-art model exists for your data, run it on your **validation** data too: the
+examples *it* gets wrong are a good list of genuinely hard cases.
 
-Below is one complete pass on the default quick-start split (DermaMNIST 28 px, 3 clients, Dirichlet $\alpha = 0.3$, 10 rounds). All numbers are averages over 3 runs.
+> **All of this happens on validation data, never on the test set.** Every look at the failures
+> influences your next change. If those looks were on the test set, the final test number would
+> be optimistic: you would have tuned the model to it (test-set overfitting). The scripts default
+> to `--data val`, all clients' validation sets together (plus `--data client_<i>` for one
+> client). The test set is evaluated **once**, for the final table.
+
+Below is one complete pass on the quick-start split (DermaMNIST 28 px, 3 clients, Dirichlet
+$\alpha = 0.3$, 10 rounds). Every number is a mean ± std over seeds 1, 2, 3, measured on the
+**validation** data (`bash experiments/reproduce_tutorials.sh t5` re-creates them).
 
 ### Iteration 0: train and find where it fails
 
@@ -184,30 +204,40 @@ python explainability/error_analysis.py --run outputs/<run>
 ```
 
 ```text
-test: 2005 samples, accuracy 0.715, balanced accuracy 0.301
+val: 1202 samples, accuracy 0.721, balanced accuracy 0.277
 
 class                         support  recall  precision     f1  most confused with
-actinic keratoses and intrae       66    0.30       0.35   0.33  melanocytic nevi (21)
-basal cell carcinoma              103    0.45       0.43   0.44  melanocytic nevi (40)
-benign keratosis-like lesion      220    0.31       0.53   0.39  melanocytic nevi (131)
-dermatofibroma                     23    0.00       0.00   0.00  melanocytic nevi (8)  <-- never predicted correctly
-melanoma                          223    0.01       0.75   0.03  melanocytic nevi (191)
-melanocytic nevi                 1341    0.97       0.76   0.85  benign keratosis-like lesion (27)
-vascular lesions                   29    0.07       1.00   0.13  melanocytic nevi (19)
+actinic keratoses and intrae       44    0.30       0.46   0.36  melanocytic nevi (22)
+basal cell carcinoma               60    0.23       0.78   0.36  melanocytic nevi (30)
+benign keratosis-like lesion      118    0.34       0.42   0.37  melanocytic nevi (74)
+dermatofibroma                     13    0.00       0.00   0.00  melanocytic nevi (10)  <-- never predicted correctly
+melanoma                          138    0.01       1.00   0.03  melanocytic nevi (114)
+melanocytic nevi                  817    0.98       0.75   0.85  benign keratosis-like lesion (18)
+vascular lesions                   12    0.08       1.00   0.15  melanocytic nevi (10)
+
+client   samples  accuracy  balanced acc.
+0             85     0.776          0.339
+1            778     0.833          0.366
+2            339     0.451          0.255
 ```
+
+(one run, seed 1)
 
 ![Errors of the baseline](images/iter_errors_baseline.png)
 
-An accuracy of 0.715 looks fine, but **the model has learnt "everything is a mole".**
-Melanocytic nevi are 67 % of the test set, and almost every other class is predicted as nevi.
+An accuracy of 0.72 looks fine, but **the model has learnt "everything is a mole".**
+Melanocytic nevi are 68 % of the validation data, and almost every other class is predicted as nevi.
 
-**Melanoma, the class that matters most clinically, has a recall of 0.01.** This is failure (a).
+**Melanoma, the class that matters most clinically, has a recall of 0.01** (0.01 ± 0.01 over the
+3 seeds). This is failure (a). And one client, client 2, gets only 45 % of its own data right.
 
 `error_analysis.py` also saves the hardest examples (highest loss):
 
 ![Hardest examples](images/iter_hardest_baseline.png)
 
-They are almost all melanomas, dermatofibromas and vascular lesions predicted as nevi, most of them with more than 90 % confidence. Nothing suggests broken images or obvious labelling errors (for that, we usually ask a domain expert), so (d) does not apply yet. Grad-CAM on exactly these mistakes:
+They are almost all melanomas, dermatofibromas and vascular lesions predicted as nevi, most of them
+with more than 90 % confidence. Nothing suggests broken images or obvious labelling errors (for
+that, ask a domain expert), so (d) does not apply yet. Grad-CAM on exactly these mistakes:
 
 ```bash
 python explainability/gradcam.py --run outputs/<run> --select mistakes --true-class melanoma
@@ -215,19 +245,25 @@ python explainability/gradcam.py --run outputs/<run> --select mistakes --true-cl
 
 ![Grad-CAM, melanomas predicted as nevi](images/iter_gradcam_melanoma_baseline.png)
 
-The evidence for "nevi" is the **surrounding skin, not the lesion**. "Nevi" is the model's default answer, and nothing in the lesion is pulling it towards melanoma.
+For most of these 12 melanomas (about 9), the highest values of the "nevi" map lie **outside** the
+lesion. The maps are coarse (7×7), so this is a hint, not a proof. It fits the per-class numbers, though:
+nothing *in* the lesion seems to pull the model away from its default answer "nevi".
 
 ### Iteration 1: make the rare classes count (action a)
 
-We cannot collect more images, but we can make every mistake on a rare class cost more. With `loss-weighting='balanced'`, every client weights its loss by the inverse frequency of each class in **its own** data (`balanced_class_weights()` in `task.py`):
+We cannot collect more images, but we can make every mistake on a rare class cost more. With
+`loss-weighting='balanced'`, every client weights its loss by the inverse frequency of each class
+in **its own** data (`balanced_class_weights()` in `task.py`):
 
 ```bash
 bash scripts/run_simulation.sh data/partitions/dirichlet "num-server-rounds=10 loss-weighting='balanced'"
 ```
 
-Balanced accuracy rises from 0.295 to 0.408, and dermatofibroma, vascular lesions and the carcinomas are found much more often. Accuracy drops (0.714 → 0.627) because fewer nevi are "free" correct answers: the classic trade-off, which should be reported.
+Validation balanced accuracy rises from 0.293 to 0.422: dermatofibroma (0.05 → 0.31), vascular
+lesions (0.03 → 0.36) and the carcinomas are found much more often. Accuracy drops (0.719 → 0.643)
+because fewer nevi are "free" correct answers: the classic trade-off, which you should report.
 
-**But melanoma stays at 0.07.** Why?
+**But melanoma stays at 0.02.** Why?
 
 ### Diagnosis: is it the data or the federation?
 
@@ -235,9 +271,14 @@ Balanced accuracy rises from 0.295 to 0.408, and dermatofibroma, vascular lesion
 python explainability/error_analysis.py --run outputs/<run> --data client_2
 ```
 
-The split shows the cause (see `label_distribution.png`): **client 2 holds 708 of the 752 melanoma training images**. Yet the global model reaches only 0.43 accuracy on client 2's own validation data. A centralised model trained on the same images  finds 50% of the melanomas. So the images are learnable, and **the federation loses what client 2 knows**. FedAvg weights clients by their size, so client 1 (4407 images, 77 % nevi) dominates every average.
+The split shows the cause (see `label_distribution.png`): **client 2 holds 708 of the 752 melanoma
+training images**. Yet the global model gets only 44 % of client 2's own validation data right.
+A centralised model trained on the same images (`experiments/centralised.py`, balanced loss) finds
+54 % of the validation melanomas. So the images are learnable, and **the federation loses what
+client 2 knows**. FedAvg weights clients by their size, so client 1 (4407 images, 77 % nevi)
+dominates every average.
 
-### Iteration 2: Give the right but underrepresented client a voice
+### Iteration 2: give the underrepresented client a voice
 
 That is a fairness problem, so we use the fairness strategy:
 [q-FedAvg](04_aggregation_strategies.md#4-fairness-q-fedavg-qfedavg) gives clients with a higher loss a larger weight.
@@ -249,20 +290,47 @@ bash scripts/run_simulation.sh data/partitions/dirichlet \
 
 ### Results of the iterations
 
-| Iteration | Change | Accuracy | Balanced acc. | Melanoma recall | Accuracy on client 2 |
-|---|---|---|---|---|---|
-| 0 | FedAvg | **0.714** | 0.295 | 0.01 | 0.46 |
-| 1 | + `loss-weighting='balanced'` | 0.627 | 0.408 | 0.07 | 0.43 |
-| 2 | + `strategy='qfedavg' qfedavg-q=1.0` | 0.656 | **0.428** | **0.17** | **0.50** |
-| ref. | centralised, plain loss (10 epochs, 1 run) | 0.737 | 0.473 | 0.27 | |
-| ref. | centralised, balanced loss (10 epochs, 1 run) | 0.574 | 0.537 | 0.50 | |
+Validation data (all clients), mean ± std over 3 seeds:
+
+| Iteration | Change | Val acc. | Val bal. acc. | Melanoma recall | Dermatofibroma recall | Client 2 val acc. |
+|---|---|---|---|---|---|---|
+| 0 | FedAvg | **0.719 ± 0.003** | 0.293 ± 0.033 | 0.01 ± 0.01 | 0.05 ± 0.09 | 0.47 ± 0.03 |
+| 1 | + `loss-weighting='balanced'` | 0.643 ± 0.047 | 0.422 ± 0.030 | 0.02 ± 0.00 | **0.31 ± 0.00** | 0.44 ± 0.02 |
+| 2 | + `strategy='qfedavg' qfedavg-q=1.0` | 0.633 ± 0.009 | **0.423 ± 0.025** | **0.13 ± 0.01** | 0.05 ± 0.09 | **0.48 ± 0.01** |
+| ref. | centralised, plain loss (10 epochs) | 0.724 ± 0.015 | 0.458 ± 0.008 | 0.23 ± 0.05 | 0.15 ± 0.08 | 0.59 ± 0.02 |
+| ref. | centralised, balanced loss (10 epochs) | 0.543 ± 0.002 | 0.513 ± 0.039 | 0.54 ± 0.04 | 0.46 ± 0.20 | 0.56 ± 0.03 |
 
 ![Errors after iteration 2](images/iter_errors_final.png)
 
-Changes that did **not** help with melanoma (1 run each, balanced loss): 64 px images
-(melanoma recall 0.00), 20 rounds (0.02), 3 or 5 local epochs (0.02 / 0.01), FedProx (0.02), FedAdam (0.10), FedAvgM with 3 local epochs (0.08). Report these too. A negative result with a reasonable explanation ("Bigger images do not help while the client that holds the melanomas is outvoted.") is also a contribution towards a  finding.
+What iteration 2 did, honestly:
 
-## Back to step 2 with the new model: what does it look at when it finds a melanoma?
+* **It did what it targeted.** Melanoma recall rose from 0.02 to 0.13 in all three seeds, and the
+  client that holds the melanomas went from 0.44 to 0.48.
+* **Overall balanced accuracy did not move** (0.422 → 0.423): q-FedAvg traded dermatofibroma
+  (0.31 → 0.05) for melanoma. Whether that trade is acceptable is a clinical question, and a good
+  one for your report.
+* **The federation is still far from centralised training** (melanoma 0.13 vs. 0.54).
+
+Changes that did **not** help (balanced loss, validation balanced accuracy / melanoma recall,
+3 seeds each): 64 px images (0.371 / 0.03), 20 rounds (0.393 / 0.03), 3 local epochs (0.417 / 0.01),
+FedProx (0.420 / 0.02), FedAdam (0.419 / 0.04), FedAvgM (0.367 / 0.06). All are within the
+seed-to-seed spread of iteration 1 or below it. Report these too: a negative result with a reason
+("bigger images do not help while the client that holds the melanomas is outvoted") is a finding.
+
+### Only now: the test set
+
+The settings were chosen on validation data. The test set is evaluated once, for the final table:
+
+| Model | Test acc. | Test bal. acc. | Test macro-F1 |
+|---|---|---|---|
+| Iteration 0 (FedAvg) | 0.712 ± 0.003 | 0.281 ± 0.027 | 0.284 ± 0.017 |
+| Iteration 2 (balanced + q-FedAvg) | 0.638 ± 0.014 | 0.421 ± 0.011 | 0.357 ± 0.017 |
+| Centralised, balanced loss | 0.573 ± 0.011 | 0.545 ± 0.034 | 0.401 ± 0.029 |
+
+The test numbers agree with the validation numbers. That is what you want to see: if they did not,
+your choices would be tuned to the validation data.
+
+### Back to step 2 with the new model: what does it look at when it finds a melanoma?
 
 ```bash
 python explainability/gradcam.py --run outputs/<run> --select correct --true-class melanoma
@@ -270,7 +338,12 @@ python explainability/gradcam.py --run outputs/<run> --select correct --true-cla
 
 ![Grad-CAM, melanomas found after iteration 2](images/iter_gradcam_melanoma_final.png)
 
-Many maps now land on the lesion and its irregular border. **Several sit on the image edge or the dark vignette corners**, so the model may be using the photo setup as a shortcut. That is the question for iteration 3: for example, crop or mask the vignette, check the untrained sanity check on the same images, or try a strategy that corrects client drift (e.g. [SCAFFOLD](https://github.com/Mirko6/federated_learning_scaffold)), since federated melanoma recall (0.17) is still far below centralised (0.50).
+Unlike the baseline's mistakes, most of these maps (about 9 of 12) have their highest values **on
+the lesion or at its edge**. The other three sit at the image borders, so the model may also use the
+photo setup as a shortcut. That is the question for iteration 3: for example, compare with the untrained sanity
+check on the same images, crop or mask the borders and measure the change, or try a strategy that
+corrects client drift (e.g. [SCAFFOLD](https://github.com/Mirko6/federated_learning_scaffold)),
+since federated melanoma recall (0.13) is still far below centralised (0.54).
 
 Keep a table like the [results of the iterations above](#results-of-the-iterations) in your report, **one row per iteration**: change, why you made it (which failure from step 2), and what it did to the metric you targeted.
 
@@ -279,19 +352,17 @@ Keep a table like the [results of the iterations above](#results-of-the-iteratio
 ## Using Grad-CAM in your own code / notebook
 
 ```python
-import numpy as np
 import torch
-from pathlib import Path
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
-from aitdm_fl.task import load_npz_arrays, model_from_test_set
+from aitdm_fl.task import load_pooled_validation, model_from_test_set
 
 model = model_from_test_set("data/partitions/iid")
 model.load_state_dict(torch.load("outputs/<run>/final_model.pt"))
 model.eval()
 
-x, y = load_npz_arrays(Path("data/partitions/iid/test.npz"), "test")   # (N, C, H, W) in [0, 1]
+x, y, client = load_pooled_validation("data/partitions/iid")   # (N, C, H, W) in [0, 1]
 images = torch.from_numpy(x[:8])
 
 with GradCAM(model=model, target_layers=[model.net.layer_1]) as cam:

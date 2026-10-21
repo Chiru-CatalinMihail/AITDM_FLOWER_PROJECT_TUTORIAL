@@ -114,6 +114,10 @@ Each client owns **exactly K classes**, as in the original FedAvg paper (McMahan
 This is the worst case for FedAvg: the local models pull the global model in completely
 different directions (*client drift*).
 
+With few clients, some classes may end up on **no** client: they cannot be learnt, but they are
+still in the test set. `split_data.py` prints a `WARNING` when this happens. To cover all classes,
+num-clients × classes-per-client must be at least the number of classes (DermaMNIST: 7).
+
 ![Pathological split](images/split_pathological.png)
 
 ### 4. Quantity skew
@@ -151,8 +155,26 @@ The full HAR walkthrough is in [tutorial 6](06_har.md).
 
 ![Group split, HAR](images/split_group_har.png)
 
-For HAR, try `--group-col` with the subject / user id, which simulates one phone per person.
-For NPZ data, store the group array in the file and pass its key: `--group-col subject`.
+Use the most natural "owner" your data has. The course HAR files have `Camera` and, after
+loading several files, `source_file`; they have no subject id. (If your dataset has one,
+`--group-col subject` simulates one phone per person.) For NPZ data, store the group array in the
+file and pass its key, e.g. `--group-col site`.
+
+### Test on a group that no client has seen
+
+By default the global test set is a random 20 % of the samples, so with a camera split **every
+camera is also in the test set**. That measures how well the federation does on the devices it
+trained on, not on a new one. To measure generalisation to an unseen camera / site / hospital,
+hold out whole groups as the test set:
+
+```bash
+python data_splitting/split_data.py --input data/raw/har/train_client*.csv \
+    --label-col Action --sample-col IDSample --feature-cols '^J' \
+    --strategy group --group-col Camera --test-groups 3 --num-clients 2 --out data/partitions/har_camera_test3
+```
+
+Cameras 1 and 2 become the two clients; every sequence of camera 3 goes to the test set.
+[Tutorial 6](06_har.md#a-camera-no-client-has-seen) compares both test sets.
 
 ---
 
@@ -196,34 +218,45 @@ bash scripts/run_simulation.sh data/partitions/realistic
 
 ## Does the bias matter?
 
-Same model and settings (5 rounds, 1 local epoch, 5 clients), different splits, evaluated on the same global test set:
+Same model and settings (5 rounds, 1 local epoch, 5 clients), different splits:
 
 ```bash
 for s in iid pathological; do
-  python data_splitting/split_data.py --dataset dermamnist --num-clients 5 --strategy $s
-  bash scripts/run_simulation.sh data/partitions/$s
+  python data_splitting/split_data.py --dataset dermamnist --num-clients 5 --strategy $s --out data/partitions/${s}5
+  python experiments/run_seeds.py --partitions data/partitions/${s}5 --config "num-server-rounds=5" --name ${s}5-fedavg
 done
+python experiments/summarize.py outputs/experiments/iid5-fedavg outputs/experiments/pathological5-fedavg --with-test
 ```
 
-Results we obtained (one seed, CPU) - if rerun numbers will differ slightly:
+Results (mean ± std over seeds 1, 2, 3; `bash experiments/reproduce_tutorials.sh t3` re-creates
+them). Validation = all clients' validation sets; the test set is evaluated once per run:
 
-| Split | Strategy | Accuracy | Balanced acc. | Macro-F1 |
-|---|---|---|---|---|
-| IID | FedAvg | 0.716 | 0.293 | 0.323 |
-| Dirichlet $\alpha$ = 1.0 | FedAvg | 0.718 | 0.303 | 0.325 |
-| Quantity $\alpha$ = 0.5 | FedAvg | 0.729 | 0.347 | 0.367 |
-| Dirichlet $\alpha$ = 0.1 | FedAvg | 0.690 | 0.246 | 0.186 |
-| Dirichlet $\alpha$ = 0.1 | FedProx ($\mu$ = 0.1) | 0.689 | 0.223 | 0.181 |
-| Pathological (2 classes/client) | FedAvg | 0.672 | 0.255 | 0.175 |
-| Pathological (2 classes/client) | FedProx ($\mu$ = 0.1) | 0.695 | 0.236 | 0.185 |
+| Split | Strategy | Val bal. acc. | Worst client val acc. | Test acc. | Test bal. acc. | Test macro-F1 |
+|---|---|---|---|---|---|---|
+| IID | FedAvg | 0.310 ± 0.040 | 0.672 ± 0.002 | 0.725 ± 0.004 | 0.335 ± 0.030 | 0.352 ± 0.027 |
+| Dirichlet $\alpha$ = 1.0 | FedAvg | 0.284 ± 0.011 | 0.519 ± 0.016 | 0.718 ± 0.004 | 0.289 ± 0.015 | 0.311 ± 0.011 |
+| Quantity $\alpha$ = 0.5 | FedAvg | 0.313 ± 0.032 | 0.429 ± 0.000 | 0.728 ± 0.004 | 0.342 ± 0.023 | 0.373 ± 0.019 |
+| Dirichlet $\alpha$ = 0.1 | FedAvg | 0.233 ± 0.005 | 0.000 ± 0.000 | 0.691 ± 0.003 | 0.236 ± 0.004 | 0.184 ± 0.003 |
+| Dirichlet $\alpha$ = 0.1 | FedProx ($\mu$ = 0.1) | 0.228 ± 0.007 | 0.000 ± 0.000 | 0.690 ± 0.003 | 0.232 ± 0.007 | 0.183 ± 0.003 |
+| Pathological (2 classes/client) | FedAvg | 0.241 ± 0.022 | 0.000 ± 0.000 | 0.680 ± 0.018 | 0.253 ± 0.021 | 0.193 ± 0.016 |
+| Pathological (2 classes/client) | FedProx ($\mu$ = 0.1) | 0.239 ± 0.018 | 0.000 ± 0.000 | 0.672 ± 0.027 | 0.248 ± 0.011 | 0.177 ± 0.007 |
 
 Things to notice (and to discuss in your report):
 
-* **Accuracy oversaturates and hides the problem.** Accuracy stays around 0.67–0.73 because predicting the majority class already yields this response.
-* **Macro-F1 drops by about 40 %** under strong label skew. Always report balanced accuracy / macro-F1 / per-class metrics on imbalanced medical data.
-* Mild bias (α = 1) costs almost nothing. Strong bias (α = 0.1, pathological) does.
-* FedProx is not a free win. Tune `proximal-mu`, train for more rounds, and compare.
-* Five rounds are far too few for conclusions. Use more rounds, several seeds (`--seed`), and report mean ± std.
+* **Accuracy hides the problem.** It stays between 0.67 and 0.73 for every split, because predicting
+  the majority class (melanocytic nevi, 67 % of the data) already scores that much.
+* **Macro-F1 drops by about 45 %** under strong label skew (0.35 → 0.18–0.19). Always report balanced
+  accuracy / macro-F1 / per-class metrics on imbalanced medical data.
+* **The worst client tells the real story.** With α = 0.1 or a pathological split, at least one client
+  gets **0 %** of its own validation data right: the global model ignores the classes that this
+  client has. The average hides that completely. This is the fairness problem of
+  [tutorial 4](04_aggregation_strategies.md#4-fairness-q-fedavg-qfedavg).
+* Mild bias (α = 1) costs a little. Strong bias (α = 0.1, pathological) costs a lot.
+* FedProx is not a free win: with these settings it changes nothing beyond the seed-to-seed spread.
+  Tune `proximal-mu`, train for more rounds, and compare.
+* Five rounds are far too few for conclusions. Use more rounds, and always report mean ± std over
+  several training seeds (`experiments/run_seeds.py`, see
+  [tutorial 2](02_running_flower.md#centralised-baseline-and-seeds)).
 
 ---
 
@@ -241,7 +274,7 @@ x_test, y_test = t["x_test"], t["y_test"]
 
 That makes it easy to:
 
-* train a **centralised baseline** (concatenate all clients' `x_train`) on the same `test.npz`,
+* train a **centralised baseline** on all clients' `x_train` together: `experiments/centralised.py`,
 * train a **local-only** model per client and compare it with the federated one,
 * do **cross-evaluation** in teams: each member owns one `client_<i>.npz`, and everybody evaluates
   everybody's model.
@@ -254,7 +287,8 @@ import them in a notebook. Flower also ships its own partitioners for Hugging Fa
 
 ## Good practice
 
-* Fix `--seed` and keep `meta.json` with your results, so every split is reproducible.
+* Keep the split's `--seed` (default 42) and `meta.json` with your results, so every split is
+  reproducible. (The *training* seed is a different one: `seed` in the run config.)
 * Never put test data into client partitions, as it would leak into the server and general reporting. `test.npz` is the only unbiased benchmark.
 * Show the `label_distribution.png` of your split in the report (Stage 1 asks you to describe the partitioning).
 * Check the per-client tables: a client with 10 samples or a single class may make the training completely unstable. The solutions to when this happens is to remove the client from the federation, or to downweight its importance in the aggregation (e.g. `--strategy qfedavg`).
