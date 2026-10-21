@@ -6,9 +6,9 @@ import torch
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from aitdm_fl.task import balanced_class_weights, get_device, load_client_data
+from aitdm_fl.task import balanced_class_weights, build_model, derive_seed, get_device
 from aitdm_fl.task import evaluate as evaluate_fn
-from aitdm_fl.task import model_from_test_set, num_classes_of
+from aitdm_fl.task import load_client_data, set_seed
 from aitdm_fl.task import train as train_fn
 
 app = ClientApp()
@@ -61,24 +61,39 @@ def poison(global_state: dict, local_state: dict, attack: str) -> dict:
     return poisoned
 
 
+def local_model(msg: Message, train_loader) -> torch.nn.Module:
+    """The global model, built from what THIS client knows: the shape of its own
+    data and the number of classes sent by the server. The client never needs
+    the server's test set (in a real federation it does not have it)."""
+    num_classes = int(msg.content["config"]["num-classes"])
+    model = build_model(sample_shape=tuple(train_loader.dataset.x.shape[1:]),
+                        num_classes=num_classes)
+    model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
+    return model
+
+
+def client_seed(msg: Message, context: Context) -> int:
+    """Reproducible seed for this client in this round (run config 'seed')."""
+    return derive_seed(int(context.run_config["seed"]), get_data_path(context).name,
+                       int(msg.content["config"]["server-round"]))
+
+
 @app.train()
 def train(msg: Message, context: Context) -> Message:
     """Receive the global model, train it on local data, send it back."""
-    partitions_dir = str(context.run_config["partitions-dir"])
     config = msg.content["config"]
-
-    model = model_from_test_set(partitions_dir)
-    global_state = msg.content["arrays"].to_torch_state_dict()
-    model.load_state_dict(global_state)
+    seed = client_seed(msg, context)
+    set_seed(seed)
 
     batch_size = int(context.run_config["batch-size"])
-    train_loader, _ = load_client_data(get_data_path(context), batch_size)
+    train_loader, _ = load_client_data(get_data_path(context), batch_size, seed=seed)
+    model = local_model(msg, train_loader)
+    global_state = {k: v.clone() for k, v in model.state_dict().items()}
 
     class_weights = None
     if str(context.run_config["loss-weighting"]) == "balanced":  # rare classes count more
-        train_set = train_loader.dataset
-        num_classes = num_classes_of(model, tuple(train_set.x.shape[1:]))
-        class_weights = balanced_class_weights(train_set.y.numpy(), num_classes)
+        class_weights = balanced_class_weights(train_loader.dataset.y.numpy(),
+                                               int(config["num-classes"]))
 
     train_loss = train_fn(
         model,
@@ -90,14 +105,17 @@ def train(msg: Message, context: Context) -> Message:
         class_weights=class_weights,
     )
 
+    # "num-examples" is used by the server to weight the aggregation (FedAvg)
+    num_examples = len(train_loader.dataset)
     if is_malicious(context):
         local_state = {k: v.cpu() for k, v in model.state_dict().items()}
         model.load_state_dict(poison(global_state, local_state, str(context.run_config["attack"])))
+        # Nothing stops a client from lying about its size: FedAvg trusts it
+        num_examples *= int(context.run_config["attack-inflate-examples"])
 
     metrics = MetricRecord({
         "train_loss": train_loss,
-        # "num-examples" is used by the server to weight the aggregation
-        "num-examples": len(train_loader.dataset),
+        "num-examples": num_examples,
         "unit-weight": 1,  # equal weights, used when differential privacy is on
     })
     content = RecordDict({"arrays": ArrayRecord(model.state_dict()), "metrics": metrics})
@@ -107,11 +125,9 @@ def train(msg: Message, context: Context) -> Message:
 @app.evaluate()
 def evaluate(msg: Message, context: Context) -> Message:
     """Evaluate the global model on this client's local validation data."""
-    partitions_dir = str(context.run_config["partitions-dir"])
-    model = model_from_test_set(partitions_dir)
-    model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
-
-    _, val_loader = load_client_data(get_data_path(context), int(context.run_config["batch-size"]))
+    train_loader, val_loader = load_client_data(get_data_path(context),
+                                                int(context.run_config["batch-size"]))
+    model = local_model(msg, train_loader)
     results = evaluate_fn(model, val_loader, get_device())
 
     metrics = MetricRecord({

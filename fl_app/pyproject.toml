@@ -39,6 +39,10 @@ partitions-dir = ""
 # Folder where the server writes final_model.pt and metrics.json ("" = don't save)
 save-dir = ""
 
+# Seed for the model initialisation, the clients' shuffling / augmentation and
+# the DP noise: the same seed gives the same result. Report mean +- std over
+# seeds 1, 2, 3 (experiments/run_seeds.py does this for you).
+seed = 1
 num-server-rounds = 5
 local-epochs = 1
 learning-rate = 0.001
@@ -68,6 +72,11 @@ dp-delta = 1e-5             # delta used to report the privacy budget epsilon
 # Robustness experiments: attacking clients (comma-separated partition ids)
 malicious-clients = ""      # e.g. "2" or "1,3"
 attack = "sign-flip"        # "sign-flip" or "noise"
+attack-inflate-examples = 1 # attackers multiply the num-examples they report (FedAvg trusts it)
+
+# The global test set is evaluated once, after the last round. true = every
+# round (for learning curves in the report, NOT for choosing settings).
+test-every-round = false
 
 fraction-train = 1.0        # fraction of connected clients used each round
 fraction-evaluate = 1.0

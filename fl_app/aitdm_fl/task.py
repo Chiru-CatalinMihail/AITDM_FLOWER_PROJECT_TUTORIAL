@@ -4,7 +4,10 @@ Flower-specific lives here, so you can reuse it for your centralised baseline.
 
 from __future__ import annotations
 
+import json
+import random
 import warnings
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -53,16 +56,39 @@ def build_mlp(num_features: int, num_classes: int) -> torch.nn.Module:
 
 
 def model_from_test_set(partitions_dir: str) -> torch.nn.Module:
-    """Build the model with the shape / number of classes of the dataset."""
+    """Build the model with the shape / number of classes of the dataset.
+
+    For the SERVER and for analysis scripts only: it reads the global test set.
+    Clients never do; they use build_model() with the shape of their own data
+    and the number of classes sent by the server (see client_app.py)."""
     x, y = load_npz_arrays(Path(partitions_dir) / "test.npz", "test")
-    return build_model(sample_shape=x.shape[1:], num_classes=int(y.max()) + 1)
+    return build_model(sample_shape=x.shape[1:], num_classes=num_classes_of_dataset(partitions_dir))
 
 
-def num_classes_of(model: torch.nn.Module, sample_shape: tuple[int, ...]) -> int:
-    """Number of model outputs (= classes), found with one dummy forward pass."""
-    model.eval()
-    with torch.no_grad():
-        return int(model(torch.zeros(1, *sample_shape)).shape[1])
+def num_classes_of_dataset(partitions_dir: str) -> int:
+    """Number of classes of the whole dataset (meta.json, written by split_data.py)."""
+    meta = Path(partitions_dir) / "meta.json"
+    if meta.exists():
+        return int(json.loads(meta.read_text())["num_classes"])
+    _, y = load_npz_arrays(Path(partitions_dir) / "test.npz", "test")
+    return int(y.max()) + 1
+
+
+# ---------------------------------------------------------------------------
+# Reproducibility
+# ---------------------------------------------------------------------------
+def set_seed(seed: int) -> None:
+    """Seed Python, NumPy and PyTorch (model initialisation, dropout, shuffling)."""
+    random.seed(seed)
+    np.random.seed(seed % 2**32)
+    torch.manual_seed(seed)
+
+
+def derive_seed(seed: int, *parts) -> int:
+    """A different but reproducible seed for every (client, round, ...) combination,
+    so that clients do not all shuffle their data in the same order."""
+    text = ":".join(str(p) for p in (seed, *parts))
+    return zlib.crc32(text.encode())
 
 
 # ---------------------------------------------------------------------------
@@ -93,12 +119,15 @@ def load_npz_arrays(path: Path, split: str) -> tuple[np.ndarray, np.ndarray]:
 class ArrayDataset(Dataset):
     """Images or feature vectors. Augmentation (flip / rotate) is for images only."""
 
-    def __init__(self, x: np.ndarray, y: np.ndarray, augment: bool = False):
+    def __init__(self, x: np.ndarray, y: np.ndarray, augment: bool = False,
+                 seed: int | None = None):
         self.x, self.y = torch.from_numpy(x), torch.from_numpy(y)
         self.transform = (
             Compose([RandFlip(prob=0.5, spatial_axis=1), RandRotate(range_x=0.26, prob=0.5)])
             if augment else None
         )
+        if self.transform is not None and seed is not None:
+            self.transform.set_random_state(seed=seed % 2**32)
 
     def __len__(self) -> int:
         return len(self.y)
@@ -110,20 +139,66 @@ class ArrayDataset(Dataset):
         return image, self.y[i]
 
 
-def load_client_data(data_path: Path, batch_size: int) -> tuple[DataLoader, DataLoader]:
-    """Return train / validation loaders of ONE client."""
+def load_client_data(data_path: Path, batch_size: int,
+                     seed: int | None = None) -> tuple[DataLoader, DataLoader]:
+    """Return train / validation loaders of ONE client.
+    With a seed, shuffling and augmentation are reproducible."""
     x_tr, y_tr = load_npz_arrays(data_path, "train")
     x_va, y_va = load_npz_arrays(data_path, "val")
-    train_loader = DataLoader(ArrayDataset(x_tr, y_tr, augment=x_tr.ndim == 4),
-                              batch_size=batch_size, shuffle=True)
+    generator = torch.Generator().manual_seed(seed) if seed is not None else None
+    train_loader = DataLoader(ArrayDataset(x_tr, y_tr, augment=x_tr.ndim == 4, seed=seed),
+                              batch_size=batch_size, shuffle=True, generator=generator)
     val_loader = DataLoader(ArrayDataset(x_va, y_va), batch_size=batch_size)
     return train_loader, val_loader
 
 
 def load_test_data(partitions_dir: str, batch_size: int = 256) -> DataLoader:
-    """Global held-out test set, used by the server (centralised evaluation)."""
+    """Global held-out test set, used by the server (centralised evaluation).
+    Use it ONCE, for the final numbers; take decisions on validation data."""
     x, y = load_npz_arrays(Path(partitions_dir) / "test.npz", "test")
     return DataLoader(ArrayDataset(x, y), batch_size=batch_size)
+
+
+def load_pooled_validation(partitions_dir: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """All clients' validation sets together: (x, y, client id of each sample).
+    The data to analyse and compare models on while you develop them."""
+    xs, ys, owners = [], [], []
+    files = sorted(Path(partitions_dir).glob("client_*.npz"),
+                   key=lambda p: int(p.stem.split("_")[1]))
+    for path in files:
+        x, y = load_npz_arrays(path, "val")
+        xs.append(x)
+        ys.append(y)
+        owners.append(np.full(len(y), int(path.stem.split("_")[1])))
+    if not xs:
+        raise FileNotFoundError(f"No client_<i>.npz files in {partitions_dir}")
+    return np.concatenate(xs), np.concatenate(ys), np.concatenate(owners)
+
+
+TEST_SET_REMINDER = (
+    "NOTE: you are looking at the TEST set. Use it once, for the final numbers of a "
+    "model you have already chosen. Diagnose and compare on --data val instead.")
+
+
+def load_analysis_data(partitions_dir: str, which: str = "val", split: str = "val"):
+    """Data for the analysis scripts in explainability/. Returns (x, y, owner, tag).
+
+    * "val"        all clients' validation sets together (default; owner = client id)
+    * "client_<i>" one client's data (its "val" or "train" split, see `split`)
+    * "test"       the global test set: only for the final report
+    """
+    partitions = Path(partitions_dir)
+    if which == "val":
+        x, y, owner = load_pooled_validation(partitions_dir)
+        return x, y, owner, "val"
+    if which.startswith("client_"):
+        x, y = load_npz_arrays(partitions / f"{which}.npz", split)
+        return x, y, None, f"{which}_{split}"
+    if which == "test":
+        print(TEST_SET_REMINDER)
+        x, y = load_npz_arrays(partitions / "test.npz", "test")
+        return x, y, None, "test"
+    raise ValueError("--data must be 'val', 'client_<i>' or 'test'")
 
 
 # ---------------------------------------------------------------------------

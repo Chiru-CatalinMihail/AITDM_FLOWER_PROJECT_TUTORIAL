@@ -26,7 +26,14 @@ from flwr.serverapp.strategy import (
     QFedAvg,
 )
 
-from aitdm_fl.task import evaluate, get_device, load_test_data, model_from_test_set
+from aitdm_fl.task import (
+    evaluate,
+    get_device,
+    load_test_data,
+    model_from_test_set,
+    num_classes_of_dataset,
+    set_seed,
+)
 
 app = ServerApp()
 
@@ -118,13 +125,24 @@ def main(grid: Grid, context: Context) -> None:
             "--run-config \"partitions-dir='/abs/path/to/data/partitions/<name>'\""
         )
 
+    # Same seed -> same initial model, same client shuffling, same DP noise
+    set_seed(int(cfg["seed"]))
+
     # Initial global model
     global_model = model_from_test_set(partitions_dir)
     test_loader = load_test_data(partitions_dir)
     device = get_device()
+    num_rounds = int(cfg["num-server-rounds"])
+    test_every_round = bool(cfg["test-every-round"])
 
-    def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
-        """Evaluate the aggregated model on the held-out global test set."""
+    def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord | None:
+        """Evaluate the aggregated model on the held-out global test set.
+
+        By default only once, after the last round: the test set is for the final
+        numbers, not for watching (and tuning) the training. Follow the training
+        with the clients' validation metrics instead (aggregate_evaluate in the log)."""
+        if server_round != num_rounds and not (test_every_round and server_round > 0):
+            return None
         model = model_from_test_set(partitions_dir)
         model.load_state_dict(arrays.to_torch_state_dict())
         results = evaluate(model, test_loader, device)
@@ -132,12 +150,17 @@ def main(grid: Grid, context: Context) -> None:
               + ", ".join(f"{k}={v:.4f}" for k, v in results.items()))
         return MetricRecord(results)
 
+    # Sent to the clients with every message: they build the model from the
+    # shape of their own data and this number of classes
+    num_classes = num_classes_of_dataset(partitions_dir)
     strategy = build_strategy(context)
     result = strategy.start(
         grid=grid,
         initial_arrays=ArrayRecord(global_model.state_dict()),
-        train_config=ConfigRecord({"lr": float(cfg["learning-rate"])}),
-        num_rounds=int(cfg["num-server-rounds"]),
+        train_config=ConfigRecord({"lr": float(cfg["learning-rate"]),
+                                   "num-classes": num_classes}),
+        evaluate_config=ConfigRecord({"num-classes": num_classes}),
+        num_rounds=num_rounds,
         evaluate_fn=global_evaluate,
     )
 
