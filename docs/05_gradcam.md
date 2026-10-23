@@ -306,9 +306,10 @@ What iteration 2 did, honestly:
 
 * **It did what it targeted.** Melanoma recall rose from 0.02 to 0.13 in all three seeds, and the
   client that holds the melanomas went from 0.44 to 0.48.
-* **Overall balanced accuracy did not move** (0.422 → 0.423): q-FedAvg traded dermatofibroma
-  (0.31 → 0.05) for melanoma. Whether that trade is acceptable is a clinical question, and a good
-  one for your report.
+* **Overall balanced accuracy did not move** (0.422 → 0.423): q-FedAvg traded dermatofibroma (0.31 → 0.05) for melanoma.
+  Whether that trade is acceptable is a clinical question, and a good one for your report.
+  **But read the dermatofibroma numbers with care:** the validation data holds only 13 dermatofibromas, so 0.31 is $\frac{4}{13}$ found and 0.05 ± 0.09 is $\frac{0}{13}$ in two seeds and $\frac{2}{13}$ in the third.
+  A difference of a few images is not a reliable trade-off: confirm it on more data (e.g. a different splitting, or the test set at the end) before you build an argument on it.
 * **The federation is still far from centralised training** (melanoma 0.13 vs. 0.54).
 
 Changes that did **not** help (balanced loss, validation balanced accuracy / melanoma recall,

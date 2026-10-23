@@ -290,7 +290,7 @@ Change the defaults in `fl_app/pyproject.toml`, or override them per run with
 | `attack-inflate-examples` | `1` | attackers multiply the `num-examples` they report ([tutorial 4](04_aggregation_strategies.md#attackers-can-also-lie-about-their-size)) |
 | `fraction-train` / `fraction-evaluate` | `1.0` | Fraction of clients sampled each round |
 | `min-nodes` | `3` | The server waits for this many clients (the scripts set it to the number of clients) |
-| `seed` | `1` | Seeds the initial model, the clients' shuffling / augmentation and the DP noise: the same seed gives the same result |
+| `seed` | `1` | Seeds the initial model, the clients' shuffling / augmentation and the DP noise: the same seed gives the same result on CPU. <br> On a GPU, some operations are non-deterministic unless you set `torch.use_deterministic_algorithms(True)` and `torch.backends.cudnn.deterministic = True` <br> (`benchmark = False`), so expect small differences there |
 | `test-every-round` | `false` | `true` = evaluate the test set every round (for curves only), else only after the last round |
 
 ### Outputs

@@ -271,7 +271,7 @@ python explainability/feature_importance.py --run outputs/<run> --untrained
 | `--group-by column` | J5X = its 4 statistics |
 | `--group-by stat` | `mean`, `std`, `min`, `max` (75 features each) |
 | `--group-by feature` | each of the 300 features alone |
-| `--repeats 5` | shuffles per group, averaged |
+| `--repeats 5` | shuffles per group, averaged (the std across them is printed and saved too) |
 
 The script saves a PNG and a JSON (all values) in the run folder. With `--group-by joint`, the plot also shows the **mean pose** of the data, with each joint coloured by its importance:
 
@@ -295,8 +295,6 @@ How to read this (and what to write in the report):
 * **Every single joint looks unimportant** (≤ 0.02) **although the joints together are crucial,
   and the "most important joint" changes from seed to seed.** A ranking of single joints is
   therefore not a finding. The joints are strongly correlated: if one is shuffled, its neighbours still carry the information. Permutation importance **underestimates correlated features**, so group them (`--group-by stat` or `joint`) before you conclude that something does not matter.
-* **The untrained model's drops are all ≈ 0**: the method's noise level is tiny, so the trained
-  model's drops are real.
 * For trust: does the importance differ between clients (`--data client_<i>`)? Does an attacked or
   DP-trained model rely on different joints?
 

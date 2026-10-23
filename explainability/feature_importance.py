@@ -148,7 +148,7 @@ def main() -> None:
     for i, name in enumerate(feature_names):
         groups.setdefault(group_of(name, args.group_by), []).append(i)
     rng = np.random.default_rng(args.seed)
-    importance = {}
+    importance, spread = {}, {}
     for group, columns in groups.items():
         drops = []
         for _ in range(args.repeats):
@@ -156,11 +156,13 @@ def main() -> None:
             shuffled[:, columns] = x[rng.permutation(len(x))][:, columns]
             drops.append(baseline - accuracy(model, shuffled, y))
         importance[group] = float(np.mean(drops))
+        spread[group] = float(np.std(drops))  # noise of the method itself
     ranking = sorted(importance, key=importance.get, reverse=True)
 
-    print(f"\nMost important ({args.group_by}): accuracy drop when shuffled")
+    print(f"\nMost important ({args.group_by}): accuracy drop when shuffled "
+          f"(± std over {args.repeats} shuffles)")
     for group in ranking[:10]:
-        print(f"  {group:<16} {importance[group]:+.3f}")
+        print(f"  {group:<16} {importance[group]:+.3f} ± {spread[group]:.3f}")
 
     # 4. Plot
     shown = ranking[:args.top][::-1]
@@ -184,7 +186,9 @@ def main() -> None:
     fig.savefig(args.out, dpi=130)
     args.out.with_suffix(".json").write_text(json.dumps(
         {"baseline_accuracy": baseline, "group_by": args.group_by, "data": args.data,
-         "importance": {g: importance[g] for g in ranking}}, indent=2))
+         "repeats": args.repeats,
+         "importance": {g: importance[g] for g in ranking},
+         "importance_std": {g: spread[g] for g in ranking}}, indent=2))
     print(f"\nSaved {args.out} (+ .json)")
 
 
