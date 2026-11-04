@@ -12,8 +12,7 @@ equally sized slice with the same class distribution. Real federations never loo
 | Hospitals use different scanners (brightness, noise) | **feature skew** | `--feature-skew` |
 | One site has a tired / inexperienced annotator | **label noise** | `--label-noise 0,0,0.2` |
 
-The project guidelines ask for *"3–5 federated clients with non-IID data splits"*. This
-tutorial shows how to create them and how to *show* that they are non-IID.
+The project guidelines ask for *"3–5 federated clients with non-IID data splits"*. This tutorial shows how to create them and how to *show* that they are non-IID.
 
 ---
 
@@ -61,7 +60,7 @@ client         0       1       2       3       4       5       6    total  major
 ```
 
 The Flower app in `fl_app/` reads these files directly
-(see [tutorial 2](02_running_flower.md)): `bash scripts/run_simulation.sh data/partitions/<strategy>`.
+(see [tutorial 2](../Local/Linux/02_running_flower.md)): `bash scripts/run_simulation.sh data/partitions/<strategy>`.
 
 ---
 
@@ -101,6 +100,9 @@ p<sub>c</sub> ~ Dir($\alpha_1$, $\alpha_2$, ..., $\alpha_K$), then give client *
 | α = 1.0 | α = 0.1 |
 |---|---|
 | ![Dirichlet 1.0](images/split_dirichlet_1.0.png) | ![Dirichlet 0.1](images/split_dirichlet_0.1.png) |
+
+To build an intuition for α, open [`dirichlet_explorer.html`](../dirichlet_explorer.html) (in the repository root) in a browser.
+Choose the number of clients K, move each α<sub>k</sub>, and see the distribution in 3D, its numbers, and the split it gives.
 
 `--min-samples` (default 20) re-draws the split until every client has at least that many samples.
 
@@ -228,35 +230,36 @@ done
 python experiments/summarize.py outputs/experiments/iid5-fedavg outputs/experiments/pathological5-fedavg --with-test
 ```
 
-Results (mean ± std over seeds 1, 2, 3; `bash experiments/reproduce_tutorials.sh t3` re-creates
-them). Validation = all clients' validation sets; the test set is evaluated once per run:
+Results (mean ± std over seeds 1, 2, 3; `bash experiments/reproduce_tutorials.sh t3` re-creates them).
+Validation = all clients' validation sets together; the test set is evaluated once per run.
+The worst client is the client with the lowest score in each run, averaged over the seeds.
 
-| Split | Strategy | Val bal. acc. | Worst client val acc. | Test acc. | Test bal. acc. | Test macro-F1 |
-|---|---|---|---|---|---|---|
-| IID | FedAvg | 0.310 ± 0.040 | 0.672 ± 0.002 | 0.725 ± 0.004 | 0.335 ± 0.030 | 0.352 ± 0.027 |
-| Dirichlet $\alpha$ = 1.0 | FedAvg | 0.284 ± 0.011 | 0.519 ± 0.016 | 0.718 ± 0.004 | 0.289 ± 0.015 | 0.311 ± 0.011 |
-| Quantity $\alpha$ = 0.5 | FedAvg | 0.313 ± 0.032 | 0.429 ± 0.000 | 0.728 ± 0.004 | 0.342 ± 0.023 | 0.373 ± 0.019 |
-| Dirichlet $\alpha$ = 0.1 | FedAvg | 0.233 ± 0.005 | 0.000 ± 0.000 | 0.691 ± 0.003 | 0.236 ± 0.004 | 0.184 ± 0.003 |
-| Dirichlet $\alpha$ = 0.1 | FedProx ($\mu$ = 0.1) | 0.228 ± 0.007 | 0.000 ± 0.000 | 0.690 ± 0.003 | 0.232 ± 0.007 | 0.183 ± 0.003 |
-| Pathological (2 classes/client) | FedAvg | 0.241 ± 0.022 | 0.000 ± 0.000 | 0.680 ± 0.018 | 0.253 ± 0.021 | 0.193 ± 0.016 |
-| Pathological (2 classes/client) | FedProx ($\mu$ = 0.1) | 0.239 ± 0.018 | 0.000 ± 0.000 | 0.672 ± 0.027 | 0.248 ± 0.011 | 0.177 ± 0.007 |
+| Split | Strategy | Val acc. | Worst client val acc. | Val bal. acc. | Worst client val bal. acc. | Test acc. | Test bal. acc. | Test macro-F1 |
+|---|---|---|---|---|---|---|---|---|
+| IID | FedAvg | 0.711 ± 0.004 | 0.672 ± 0.002 | 0.310 ± 0.040 | 0.280 ± 0.030 | 0.725 ± 0.004 | 0.335 ± 0.030 | 0.352 ± 0.027 |
+| Dirichlet $\alpha$ = 1.0 | FedAvg | 0.720 ± 0.007 | 0.519 ± 0.016 | 0.284 ± 0.011 | 0.263 ± 0.018 | 0.718 ± 0.004 | 0.289 ± 0.015 | 0.311 ± 0.011 |
+| Quantity $\alpha$ = 0.5 | FedAvg | 0.716 ± 0.006 | 0.429 ± 0.000 | 0.313 ± 0.032 | 0.250 ± 0.000 | 0.728 ± 0.004 | 0.342 ± 0.023 | 0.373 ± 0.019 |
+| Dirichlet $\alpha$ = 0.1 | FedAvg | 0.697 ± 0.004 | 0.000 ± 0.000 | 0.233 ± 0.005 | 0.000 ± 0.000 | 0.691 ± 0.003 | 0.236 ± 0.004 | 0.184 ± 0.003 |
+| Dirichlet $\alpha$ = 0.1 | FedProx ($\mu$ = 0.1) | 0.694 ± 0.001 | 0.000 ± 0.000 | 0.228 ± 0.007 | 0.000 ± 0.000 | 0.690 ± 0.003 | 0.232 ± 0.007 | 0.183 ± 0.003 |
+| Pathological (2 classes/client) | FedAvg | 0.677 ± 0.031 | 0.000 ± 0.000 | 0.241 ± 0.022 | 0.000 ± 0.000 | 0.680 ± 0.018 | 0.253 ± 0.021 | 0.193 ± 0.016 |
+| Pathological (2 classes/client) | FedProx ($\mu$ = 0.1) | 0.674 ± 0.033 | 0.000 ± 0.000 | 0.239 ± 0.018 | 0.000 ± 0.000 | 0.672 ± 0.027 | 0.248 ± 0.011 | 0.177 ± 0.007 |
 
 Things to notice (and to discuss in your report):
 
-* **Accuracy hides the problem.** It stays between 0.67 and 0.73 for every split, because predicting
-  the majority class (melanocytic nevi, 67 % of the data) already scores that much.
-* **Macro-F1 drops by about 45 %** under strong label skew (0.35 → 0.18–0.19). Always report balanced
-  accuracy / macro-F1 / per-class metrics on imbalanced medical data.
-* **The worst client tells the real story.** With α = 0.1 or a pathological split, at least one client
-  gets **0 %** of its own validation data right: the global model ignores the classes that this
-  client has. The average hides that completely. This is the fairness problem of
-  [tutorial 4](04_aggregation_strategies.md#4-fairness-q-fedavg-qfedavg).
+* **Compare like with like.** Accuracy goes with accuracy (columns 3 and 4), balanced accuracy with balanced accuracy (columns 5 and 6).
+  The worst client's accuracy (0.672 for IID) is higher than the balanced accuracy of all clients together (0.310), but never higher than their accuracy (0.711): the two metrics measure different things.
+* **Accuracy hides the problem.** It stays between 0.67 and 0.73 for every split, because predicting the majority class (melanocytic nevi, 67 % of the data) already scores that much.
+* **Macro-F1 drops by about 45 %** under strong label skew (0.35 → 0.18–0.19). Always report balanced accuracy / macro-F1 / per-class metrics on imbalanced medical data.
+* **The worst client tells the real story.** Already with α = 1.0 the worst client is 0.20 below the average accuracy (0.519 vs 0.720).
+  With α = 0.1 or a pathological split, at least one client gets **0 %** of its own validation data right: the global model ignores the classes that this client has.
+  The average hides that completely. This is the fairness problem of [tutorial 4](04_aggregation_strategies.md#4-fairness-q-fedavg-qfedavg).
+* With IID data the worst client is close to the average in both metrics (0.672 vs 0.711, 0.280 vs 0.310): no client is left behind, but every client shares the same weakness on the rare classes.
 * Mild bias (α = 1) costs a little. Strong bias (α = 0.1, pathological) costs a lot.
 * FedProx is not a free win: with these settings it changes nothing beyond the seed-to-seed spread.
   Tune `proximal-mu`, train for more rounds, and compare.
 * Five rounds are far too few for conclusions. Use more rounds, and always report mean ± std over
   several training seeds (`experiments/run_seeds.py`, see
-  [tutorial 2](02_running_flower.md#centralised-baseline-and-seeds)).
+  [tutorial 2](../Local/Linux/02_running_flower.md#centralised-baseline-and-seeds)).
 
 ---
 

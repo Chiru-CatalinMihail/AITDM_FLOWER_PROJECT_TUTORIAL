@@ -3,7 +3,7 @@
 # Deployment mode in ONE terminal: starts the SuperLink and one SuperNode per
 # client in the background, submits the run, then shuts everything down.
 # It does exactly what you would do by hand in several terminals (see
-# docs/02_running_flower.md); the logs of each component go to logs/.
+# Local/Linux/02_running_flower.md); the logs of each component go to logs/.
 #
 # Usage:
 #   bash scripts/run_deployment_local.sh [PARTITIONS_DIR] [RUN_CONFIG_OVERRIDES]

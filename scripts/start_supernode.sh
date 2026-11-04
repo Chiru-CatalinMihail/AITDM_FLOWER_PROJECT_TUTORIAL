@@ -31,8 +31,9 @@ if [ ! -f "$DATA_PATH" ]; then
     exit 1
 fi
 
-# Each SuperNode on the same machine needs its own local port (9094, 9095, ...)
-PORT=$((9094 + CLIENT_ID))
+# Each SuperNode on the same machine needs its own local port (9094, 9095, ...;
+# inside a Slurm job they come from the job's own block of ports)
+PORT="${SUPERNODE_PORT:-$((SUPERNODE_PORT_BASE + CLIENT_ID))}"
 
 # Optional extra node config, e.g. EXTRA_NODE_CONFIG="malicious=true" (docs/04)
 NODE_CONFIG="data-path='$DATA_PATH'${EXTRA_NODE_CONFIG:+ $EXTRA_NODE_CONFIG}"

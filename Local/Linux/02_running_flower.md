@@ -18,7 +18,7 @@ This tutorial shows two ways to run the same federated app:
 > python data_splitting/split_data.py --dataset dermamnist --num-clients 3 --strategy dirichlet --alpha 0.3
 > ```
 >
-> This writes `data/partitions/dirichlet/{client_0,client_1,client_2,test}.npz` (more in [tutorial 3](03_biased_data_splits.md)).
+> This writes `data/partitions/dirichlet/{client_0,client_1,client_2,test}.npz` (more in [tutorial 3](../../docs/03_biased_data_splits.md)).
 
 ---
 
@@ -239,7 +239,7 @@ bash scripts/run_deployment_terminals.sh data/partitions/iid "num-server-rounds=
 | Window | When its component stops | Menu |
 |---|---|---|
 | Submit run | after every run | **[Enter]** submit the same run again · **[e]** edit the run-config overrides first (e.g. `num-server-rounds=10 strategy='krum'`) · **[q]** close |
-| SuperNode *i* | after **Ctrl+C** in that window | **[Enter]** restart · **[m]** restart as an attacker (`malicious=true`, see [tutorial 4](04_aggregation_strategies.md)) · **[h]** restart as an honest client · **[q]** close |
+| SuperNode *i* | after **Ctrl+C** in that window | **[Enter]** restart · **[m]** restart as an attacker (`malicious=true`, see [tutorial 4](../../docs/04_aggregation_strategies.md)) · **[h]** restart as an honest client · **[q]** close |
 | SuperLink | after **Ctrl+C** in that window | **[Enter]** restart · **[q]** close |
 
 * **Ctrl+C stops only the component of that window.** The other windows keep running.
@@ -282,12 +282,12 @@ Change the defaults in `fl_app/pyproject.toml`, or override them per run with
 | `local-epochs` | `1` | Epochs each client trains per round |
 | `learning-rate` | `0.001` | Adam learning rate (sent by the server to the clients) |
 | `batch-size` | `32` | |
-| `loss-weighting` | `"none"` | `"balanced"`: each client weights its loss by inverse class frequency, so rare classes count more ([tutorial 5](05_gradcam.md#iteration-1-make-the-rare-classes-count-action-a)) |
-| `strategy` | `"fedavg"` | `fedavg`, `fedprox`, `fedavgm`, `fedadam`, `fedyogi`, `fedmedian`, `fedtrimmedavg`, `krum`, `qfedavg` ([tutorial 4](04_aggregation_strategies.md)) |
+| `loss-weighting` | `"none"` | `"balanced"`: each client weights its loss by inverse class frequency, so rare classes count more ([tutorial 5](../../docs/05_gradcam.md#iteration-1-make-the-rare-classes-count-action-a)) |
+| `strategy` | `"fedavg"` | `fedavg`, `fedprox`, `fedavgm`, `fedadam`, `fedyogi`, `fedmedian`, `fedtrimmedavg`, `krum`, `qfedavg` ([tutorial 4](../../docs/04_aggregation_strategies.md)) |
 | `proximal-mu`, `server-momentum`, `server-lr`, `trim-beta`, `num-malicious`, `qfedavg-q`, `qfedavg-client-lr` | see `pyproject.toml` | strategy hyperparameters |
 | `dp-noise-multiplier`, `dp-clipping-norm`, `dp-delta` | `0.0`, `1.0`, `1e-5` | central differential privacy (0 = off), ε is reported |
 | `malicious-clients`, `attack` | `""`, `"sign-flip"` | turn clients into attackers (robustness experiments) |
-| `attack-inflate-examples` | `1` | attackers multiply the `num-examples` they report ([tutorial 4](04_aggregation_strategies.md#attackers-can-also-lie-about-their-size)) |
+| `attack-inflate-examples` | `1` | attackers multiply the `num-examples` they report ([tutorial 4](../../docs/04_aggregation_strategies.md#attackers-can-also-lie-about-their-size)) |
 | `fraction-train` / `fraction-evaluate` | `1.0` | Fraction of clients sampled each round |
 | `min-nodes` | `3` | The server waits for this many clients (the scripts set it to the number of clients) |
 | `seed` | `1` | Seeds the initial model, the clients' shuffling / augmentation and the DP noise: the same seed gives the same result on CPU. <br> On a GPU, some operations are non-deterministic unless you set `torch.use_deterministic_algorithms(True)` and `torch.backends.cudnn.deterministic = True` <br> (`benchmark = False`), so expect small differences there |
@@ -342,7 +342,7 @@ python experiments/summarize.py outputs/experiments/central-dirichlet outputs/ex
 | fedavg-balanced | 0.643 ± 0.047 | 0.422 ± 0.030 | 0.364 ± 0.052 | 0.439 ± 0.020 |
 ```
 
-(DermaMNIST, the quick-start split. The federated model matches the centralised accuracy, but not its balanced accuracy, and its worst client is far behind: [tutorial 5](05_gradcam.md#the-iterative-process-from-explanation-to-a-better-model) works through this example.)
+(DermaMNIST, the quick-start split. The federated model matches the centralised accuracy, but not its balanced accuracy, and its worst client is far behind: [tutorial 5](../../docs/05_gradcam.md#the-iterative-process-from-explanation-to-a-better-model) works through this example.)
 
 Both scripts evaluate every model in the same way (`experiments/evaluation.py`):
 
@@ -365,10 +365,10 @@ The absolute path towards all those files is `fl_app/aitdm_fl/`.
 | I want to... | Edit |
 |---|---|
 | use another model | `build_model()` in `task.py` (any MONAI / torchvision network; `build_mlp()` for feature data) |
-| use my own dataset | images: `split_data.py --input data.npz`; CSV (e.g. HAR): `split_data.py --input *.csv`, see [tutorial 6](06_har.md). Other formats: `load_npz_arrays()` / `load_client_data()` / `load_test_data()` in `task.py` |
-| use or write another aggregation strategy | `build_strategy()` in `server_app.py`, see [tutorial 4](04_aggregation_strategies.md) |
-| find where the model fails (per class, per client, hardest examples) | `python explainability/error_analysis.py --run outputs/<run>`, see [tutorial 5](05_gradcam.md#the-iterative-process-from-explanation-to-a-better-model) |
-| explain the trained model | images: `python explainability/gradcam.py --run outputs/<run>` ([tutorial 5](05_gradcam.md)); features: `explainability/feature_importance.py` ([tutorial 6](06_har.md)) |
+| use my own dataset | images: `split_data.py --input data.npz`; CSV (e.g. HAR): `split_data.py --input *.csv`, see [tutorial 6](../../docs/06_har.md). Other formats: `load_npz_arrays()` / `load_client_data()` / `load_test_data()` in `task.py` |
+| use or write another aggregation strategy | `build_strategy()` in `server_app.py`, see [tutorial 4](../../docs/04_aggregation_strategies.md) |
+| find where the model fails (per class, per client, hardest examples) | `python explainability/error_analysis.py --run outputs/<run>`, see [tutorial 5](../../docs/05_gradcam.md#the-iterative-process-from-explanation-to-a-better-model) |
+| explain the trained model | images: `python explainability/gradcam.py --run outputs/<run>` ([tutorial 5](../../docs/05_gradcam.md)); features: `explainability/feature_importance.py` ([tutorial 6](../../docs/06_har.md)) |
 | send extra values to clients every round | `train_config=ConfigRecord({...})` in `server_app.py`, read `msg.content["config"]` in `client_app.py` |
 | report extra metrics | add them to the `MetricRecord` in `client_app.py` / `evaluate()` in `task.py` |
 
@@ -384,4 +384,4 @@ The absolute path towards all those files is `fl_app/aitdm_fl/`.
 | First run downloads GBs / "Installing application dependencies..." | Recent Flower versions install the app dependencies into a separate env per run. Our scripts disable this with `FLWR_DISABLE_RUNTIME_DEPENDENCY_INSTALLATION=1` / `--disable-runtime-dependency-installation` because the venv already has everything. If you started `flwr run .` yourself before, run `bash scripts/stop_flower.sh` once |
 | `Recommended property "license" missing` | Harmless metadata warning |
 | `Since flwr 1.32, default simulated SuperNodes changed from 10 to 2` | Harmless; we always pass `num-supernodes` explicitly |
-| Clients can't reach the server on a cluster | Server and clients must run on the **same node**, or use the server's real IP, not `127.0.0.1` |
+| Clients can't reach the server on a cluster | On fep use the `deployment` job, which connects them by IP address ([Fep/02_running_on_slurm.md](../../Fep/02_running_on_slurm.md#3-deployment-every-component-its-own-process-connected-by-ip)). Elsewhere: server and clients on the **same node**, or the server's real IP, not `127.0.0.1` |

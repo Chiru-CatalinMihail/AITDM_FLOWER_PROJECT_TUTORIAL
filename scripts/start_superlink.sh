@@ -13,8 +13,10 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 HOST="${HOST:-127.0.0.1}"
-echo ">>> Starting SuperLink on $HOST:8000 (Ctrl+C to stop)"
+PORT="${PORT:-$SUPERLINK_PORT}"   # 8000, or the port of your Slurm job
+echo ">>> Starting SuperLink on $HOST:$PORT (Ctrl+C to stop)"
 exec flower-superlink \
     --insecure \
     --host "$HOST" \
+    --port "$PORT" \
     --disable-runtime-dependency-installation

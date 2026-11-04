@@ -34,7 +34,7 @@ The script:
 1. checks the Python version,
 2. creates `.venv/` in the repository,
 3. installs PyTorch (CPU or default build),
-4. installs everything in [`requirements.txt`](../requirements.txt),
+4. installs everything in [`requirements.txt`](../../requirements.txt),
 5. installs the Flower app in `fl_app/` in editable mode (`pip install -e fl_app`), so that
    `import aitdm_fl` works anywhere (handy for your centralised baseline or a notebook),
 6. prints the versions it installed:
@@ -98,7 +98,7 @@ run `pip install -e fl_app` from the repository root.
 | `torch`, `torchvision` | Deep learning |
 | `monai` | Medical imaging networks, transforms and losses |
 | `numpy`, `pandas`, `scikit-learn`, `matplotlib`, `tqdm` | Data handling, metrics (F1, balanced accuracy), plots |
-| `grad-cam` | Grad-CAM / Grad-CAM++ / Score-CAM explanations for Stage 2 (pulls in OpenCV), see [tutorial 5](05_gradcam.md) |
+| `grad-cam` | Grad-CAM / Grad-CAM++ / Score-CAM explanations for Stage 2 (pulls in OpenCV), see [tutorial 5](../../docs/05_gradcam.md) |
 
 Need another library? Add it to `requirements.txt` **with a version** and re-run
 `bash scripts/setup_env.sh`. The script reuses the existing `.venv`.
@@ -127,4 +127,4 @@ Any environment manager works as long as you install `requirements.txt` into it:
 | `The virtual environment was not created successfully because ensurepip is not available` | `sudo apt install python3.12-venv` (match your Python version) |
 | Very large download / disk full | Use `--cpu`; delete `.venv/` and start again |
 | `CUDA available: False` but you have a GPU | Re-create the venv without `--cpu`; check `nvidia-smi` works |
-| University cluster (FEP) | Run the server and all clients **on the same node and queue**, or use the node's real IP instead of `127.0.0.1`.<br><br>Otherwise, pointing to 0.0.0.0:8080 or 127.0.0.1:8080 is going to point to different actual IPs and this will mean that they are not communicating (server is waiting for the clients and clients give an error of "no server to talk to") |
+| University cluster (fep) | Follow the fep guide instead: [Fep/01_environment_setup.md](../../Fep/01_environment_setup.md) |

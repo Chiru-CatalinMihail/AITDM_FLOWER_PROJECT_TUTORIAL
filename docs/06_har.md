@@ -6,7 +6,7 @@ This tutorial runs the **same pipeline on skeleton data**:
 
 split → federated training → trust experiments → explanations.
 
-Only the first step and the explanation tool differ, so read tutorials [2](02_running_flower.md) and [3](03_biased_data_splits.md) first.
+Only the first step and the explanation tool differ, so read tutorials [2](../Local/Linux/02_running_flower.md) and [3](03_biased_data_splits.md) first.
 
 ---
 

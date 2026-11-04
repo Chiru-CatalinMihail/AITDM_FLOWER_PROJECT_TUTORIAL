@@ -20,7 +20,7 @@ PARTITIONS="$(abspath "${1:-$DEFAULT_PARTITIONS}")"
 EXTRA_CONFIG="${2:-}"
 check_partitions "$PARTITIONS"
 NUM_CLIENTS="$(num_clients_of "$PARTITIONS")"
-SAVE_DIR="$REPO_ROOT/outputs/deploy-$(basename "$PARTITIONS")-$(date +%Y%m%d-%H%M%S)"
+SAVE_DIR="${SAVE_DIR:-$REPO_ROOT/outputs/deploy-$(basename "$PARTITIONS")-$(date +%Y%m%d-%H%M%S)${SLURM_JOB_ID:+-job$SLURM_JOB_ID}}"
 
 ensure_connection
 

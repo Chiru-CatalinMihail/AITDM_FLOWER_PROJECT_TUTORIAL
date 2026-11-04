@@ -18,9 +18,28 @@ Starter code for the **AI for Trustworthy Decision Making** project. It gives yo
 
 Everything is tested with **Flower 1.41**, PyTorch 2.14 and MONAI 1.6 on Python 3.12.
 
+**Start here: [the Dirichlet explorer](dirichlet_explorer.html).**
+Download the repository (or just this file) and open `dirichlet_explorer.html` in a browser: no installation needed.
+Choose the number of concentration parameters α, move each one, and see how the Dirichlet distribution changes in 3D, and what it means for the way a dataset is split between federated clients ([tutorial 3](docs/03_biased_data_splits.md)).
+
 ---
 
-## Quick start
+## Choose your system
+
+The code is the same everywhere; only the setup and the way you start runs differ.
+
+| Where you work | Guides |
+|---|---|
+| **Your own Linux or macOS machine** | [Local/Linux](Local/Linux/README.md): [setup](Local/Linux/01_environment_setup.md), [running Flower](Local/Linux/02_running_flower.md) |
+| **Windows (WSL2)** | [Local/Wsl](Local/Wsl/README.md) (for now, follow the Linux guides inside WSL2) |
+| **The university cluster fep (Slurm)** | [Fep](Fep/README.md): [setup](Fep/01_environment_setup.md), [running with Slurm](Fep/02_running_on_slurm.md) |
+
+Tutorials 3 to 6 (in [`docs/`](docs/)) are the same on every system.
+On fep, run their commands as jobs: `bash Fep/submit.sh <job> ...` ([how](Fep/02_running_on_slurm.md#4-experiments-with-seeds-baselines-the-whole-tutorial)).
+
+---
+
+## Quick start (local Linux / macOS / WSL2)
 
 ```bash
 # 0. Get the code
@@ -46,7 +65,21 @@ bash scripts/run_deployment_terminals.sh
 ```
 
 You can also start every component by hand in its own terminal; see
-[docs/02_running_flower.md](docs/02_running_flower.md).
+[Local/Linux/02_running_flower.md](Local/Linux/02_running_flower.md).
+
+**On fep** the same steps are:
+
+```bash
+git clone https://github.com/Chiru-CatalinMihail/AITDM_FLOWER_PROJECT_TUTORIAL.git
+cd AITDM_FLOWER_PROJECT_TUTORIAL
+bash Fep/setup_fep.sh                     # .venv + data/results in ~/AITDM_Project
+bash Fep/submit.sh smoke_test             # check it on a compute node
+source .venv/bin/activate
+python data_splitting/split_data.py --dataset dermamnist --num-clients 3 --strategy dirichlet --alpha 0.3
+bash Fep/submit.sh simulation             # server + 3 clients in one Slurm job
+```
+
+See [Fep/README.md](Fep/README.md).
 
 **HAR instead of images?** Install the zip from Moodle and replace step 2 with:
 
@@ -84,8 +117,8 @@ git history.
 
 | # | Tutorial | What you learn |
 |---|----------|----------------|
-| 1 | [Environment setup](docs/01_environment_setup.md) | venv, `requirements.txt`, CPU vs GPU PyTorch, Windows/WSL2 |
-| 2 | [Running Flower](docs/02_running_flower.md) | Simulation (`flwr run`) vs. deployment (SuperLink + SuperNodes in separate terminals) |
+| 1 | Environment setup: [local](Local/Linux/01_environment_setup.md) · [fep](Fep/01_environment_setup.md) | venv, `requirements.txt`, CPU vs GPU PyTorch, Windows/WSL2; on fep: data and results in `~/AITDM_Project` |
+| 2 | Running Flower: [local](Local/Linux/02_running_flower.md) · [fep](Fep/02_running_on_slurm.md) | Simulation (`flwr run`) vs. deployment (SuperLink + SuperNodes in separate terminals); on fep: Slurm jobs, partitions, GPUs |
 | 3 | [Biased data splits](docs/03_biased_data_splits.md) | IID, label skew (Dirichlet), pathological, quantity skew, natural (per-subject) splits, feature skew, label noise |
 | 4 | [Aggregation strategies](docs/04_aggregation_strategies.md) | FedAvg, FedProx, FedAvgM, FedAdam/Yogi, FedMedian, FedTrimmedAvg, Krum, q-FedAvg, differential privacy; attack experiments |
 | 5 | [Grad-CAM](docs/05_gradcam.md) | Explaining predictions, choosing the layer, sanity checks, what to report, and the iterative process: from errors to a better model (worked example) |
@@ -98,6 +131,14 @@ git history.
 ```text
 AITDM_FLOWER_PROJECT_TUTORIAL/
 ├── README.md                    <- you are here
+├── dirichlet_explorer.html      <- interactive 3D Dirichlet distribution (open it in a browser)
+├── Local/
+│   ├── Linux/                   <- tutorials 1 and 2 for your own machine (Linux, macOS)
+│   └── Wsl/                     <- Windows / WSL2 notes
+├── Fep/                         <- tutorials 1 and 2 for the fep cluster
+│   ├── setup_fep.sh             <- .venv + links data/, outputs/, logs/ to ~/AITDM_Project
+│   ├── submit.sh                <- submit a job of Fep/jobs/ (sbatch wrapper)
+│   └── jobs/                    <- Slurm jobs: smoke_test, simulation, deployment, run_seeds, ...
 ├── requirements.txt             <- pinned dependencies (Flower, PyTorch, MONAI, ...)
 ├── requirements-dev.txt         <- + pytest and ruff (tests / CI)
 ├── scripts/
@@ -130,12 +171,12 @@ AITDM_FLOWER_PROJECT_TUTORIAL/
 │       ├── task.py              <- models (MONAI CNN / MLP), data loading, train / evaluate (no Flower here)
 │       ├── client_app.py        <- ClientApp: local training & evaluation (+ optional attacker)
 │       └── server_app.py        <- ServerApp: aggregation strategy, DP, global evaluation
-├── docs/                        <- the tutorials + figures
+├── docs/                        <- tutorials 3 to 6 (the same on every system) + figures
 ├── tests/                       <- unit tests, link checker, end-to-end smoke test (run by the CI)
 ├── .github/workflows/ci.yml     <- GitHub Actions: lint, links, tests, smoke test
-├── data/        (git-ignored)   <- raw downloads and generated partitions
-├── outputs/     (git-ignored)   <- final_model.pt + metrics.json of every run
-└── logs/        (git-ignored)   <- component logs of run_deployment_local.sh
+├── data/        (git-ignored)   <- raw downloads and generated partitions (on fep: a link to ~/AITDM_Project/data)
+├── outputs/     (git-ignored)   <- final_model.pt + metrics.json of every run (on fep: ~/AITDM_Project/outputs)
+└── logs/        (git-ignored)   <- component logs of run_deployment_local.sh (on fep: ~/AITDM_Project/logs)
 ```
 
 ---
@@ -145,8 +186,8 @@ AITDM_FLOWER_PROJECT_TUTORIAL/
 | Project requirement | Where to start |
 |---|---|
 | *Stage 1 – simulate 3–5 clients with non-IID splits* | `data_splitting/split_data.py` ([tutorial 3](docs/03_biased_data_splits.md)) |
-| *Stage 1 – minimal federated experiment (FedAvg)* | `scripts/run_simulation.sh` ([tutorial 2](docs/02_running_flower.md)) |
-| *Stage 1 – centralised vs. federated comparison* | `python experiments/centralised.py --partitions data/partitions/<split>`: the same model on the pooled client data, evaluated exactly like the federated runs ([tutorial 2](docs/02_running_flower.md#centralised-baseline-and-seeds)) |
+| *Stage 1 – minimal federated experiment (FedAvg)* | `scripts/run_simulation.sh` ([tutorial 2](Local/Linux/02_running_flower.md)) |
+| *Stage 1 – centralised vs. federated comparison* | `python experiments/centralised.py --partitions data/partitions/<split>`: the same model on the pooled client data, evaluated exactly like the federated runs ([tutorial 2](Local/Linux/02_running_flower.md#centralised-baseline-and-seeds)) |
 | *Reporting results* | `python experiments/run_seeds.py ...` runs seeds 1, 2, 3; `experiments/summarize.py` prints mean ± std tables. Compare on validation data, report the test set once at the end |
 | *Stage 2 – different aggregation types* | `--run-config "strategy='krum'"` etc. ([tutorial 4](docs/04_aggregation_strategies.md)) |
 | *Stage 2 – differential privacy* | `--run-config "dp-noise-multiplier=1.0"`, ε is logged and saved ([tutorial 4](docs/04_aggregation_strategies.md#5-privacy-central-differential-privacy)) |
@@ -162,12 +203,12 @@ AITDM_FLOWER_PROJECT_TUTORIAL/
 
 Most Flower problems are **silent waits**, not crashes: a component waits for one that never comes. 
 
-In depth comments in [Tutorial 2](docs/02_running_flower.md#troubleshooting).
+In depth comments in [Tutorial 2](Local/Linux/02_running_flower.md#troubleshooting).
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| On a cluster (SLURM) the server waits forever and the clients find no server | `127.0.0.1` means "this machine", and every job can run on a **different node**: a client looks for the SuperLink on its own node | Run everything in one job on one node (`srun --nodes=1 --cpus-per-task=8 bash scripts/run_deployment_local.sh`). Across nodes: `HOST=0.0.0.0 bash scripts/start_superlink.sh`, then use `<node-name>:8000` (`hostname`) for the SuperNodes and in `~/.flwr/config.toml`. Never train on the login node |
-| `Address already in use` (8000, 9094, ...) | An old SuperLink / SuperNode is still alive, or, on a shared node, another user's | `bash scripts/stop_flower.sh`. On shared nodes ask for `--exclusive` |
+| On a cluster (SLURM) the server waits forever and the clients find no server | `127.0.0.1` means "this machine", and every job can run on a **different node**: a client looks for the SuperLink on its own node | On fep, start the server and all clients in **one job on one partition**: `bash Fep/submit.sh simulation ...` or `bash Fep/submit.sh deployment ...`, which connects them by IP address ([Fep tutorial 2](Fep/02_running_on_slurm.md)). Never train on the login node |
+| `Address already in use` (8000, 9094, ...) | An old SuperLink / SuperNode is still alive | `bash scripts/stop_flower.sh`. Inside a Slurm job every job has its own ports, so other users' jobs on the same node do not interfere |
 | `FileNotFoundError: .../test.npz not found` | Split not created (or under another name); relative `partitions-dir`; data not on the node running the component; files re-split / deleted during the run | Run `split_data.py` first and pass its folder; use absolute paths (the scripts do); keep data on the shared filesystem, not `/tmp`; write new splits to a new `--out`. Data is never in the repo: see [Data](#data) |
 | `Waiting for nodes to connect: 2 connected (minimum required: 3)` | Fewer SuperNodes than `min-nodes` (simulation defaults to 2 since Flower 1.32) | Start all N SuperNodes; in simulation pass `--federation-config "num-supernodes=N"` (the scripts do) |
 | No client connects after a SuperLink restart | The new SuperLink forgets all nodes; old SuperNodes are rejected (`401`) and stop | Restart the SuperNodes (`run_deployment_terminals.sh` does it by itself) |

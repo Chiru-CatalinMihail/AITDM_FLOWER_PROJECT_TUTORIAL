@@ -6,9 +6,30 @@ APP_DIR="$REPO_ROOT/fl_app"
 VENV_DIR="${VENV_DIR:-$REPO_ROOT/.venv}"
 DEFAULT_PARTITIONS="$REPO_ROOT/data/partitions/dirichlet"
 
+# Inside a Slurm job (e.g. on fep, see Fep/02_running_on_slurm.md) several jobs
+# can share one node, but Flower always uses the same ports (simulation: 39091,
+# 39093; deployment: 8000, 9094, ...) and keeps its state in ~/.flwr. A second
+# job would then send its run to the first job's SuperLink. So every job gets
+# its own block of 20 ports, computed from the job id (every process of the
+# job finds the same ones), and its own Flower and Ray folders on the node.
+if [ -n "${SLURM_JOB_ID:-}" ]; then
+    JOB_PORT_BASE=$((20000 + (SLURM_JOB_ID % 2000) * 20))
+    export FLWR_LOCAL_SUPERLINK_HTTP_API_PORT="${FLWR_LOCAL_SUPERLINK_HTTP_API_PORT:-$JOB_PORT_BASE}"
+    export FLWR_LOCAL_CONTROL_API_PORT="${FLWR_LOCAL_CONTROL_API_PORT:-$((JOB_PORT_BASE + 1))}"
+    SUPERLINK_PORT="${SUPERLINK_PORT:-$((JOB_PORT_BASE + 2))}"
+    SUPERNODE_PORT_BASE="${SUPERNODE_PORT_BASE:-$((JOB_PORT_BASE + 3))}"
+    export FLWR_HOME="${FLWR_HOME:-/tmp/flwr-$USER-$SLURM_JOB_ID}"
+    # Short path: Ray's socket paths must stay under 107 characters
+    export RAY_TMPDIR="${RAY_TMPDIR:-/tmp/ray-$SLURM_JOB_ID}"
+    mkdir -p "$FLWR_HOME" "$RAY_TMPDIR"
+fi
+SUPERLINK_PORT="${SUPERLINK_PORT:-8000}"
+SUPERNODE_PORT_BASE="${SUPERNODE_PORT_BASE:-9094}"
+
 # Name of the SuperLink connection used for deployment runs (~/.flwr/config.toml)
-CONNECTION_NAME="local-deployment"
-SUPERLINK_ADDRESS="127.0.0.1:8000"
+# (Fep/jobs/deployment.sbatch sets the address to the SuperLink of its job)
+CONNECTION_NAME="${CONNECTION_NAME:-local-deployment}"
+SUPERLINK_ADDRESS="${SUPERLINK_ADDRESS:-127.0.0.1:$SUPERLINK_PORT}"
 
 # Activate the virtual environment (created by scripts/setup_env.sh)
 if [ -z "${VIRTUAL_ENV:-}" ]; then

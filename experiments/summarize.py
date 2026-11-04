@@ -41,9 +41,11 @@ def summarize_experiment(exp_dir: Path, quiet: bool = False) -> dict:
     summary["val_per_client"] = {
         c: {m: _mean_std([r["val_per_client"][c][m] for r in results]) for m, _ in METRICS}
         for c in clients}
-    # the worst client in each run, averaged: a simple fairness number
-    summary["val_worst_client_accuracy"] = _mean_std(
-        [min(r["val_per_client"][c]["accuracy"] for c in clients) for r in results])
+    # the worst client in each run, averaged: a simple fairness number. Compare
+    # it with the accuracy (not the balanced accuracy) of all clients together
+    for metric in ("accuracy", "balanced_accuracy"):
+        summary[f"val_worst_client_{metric}"] = _mean_std(
+            [min(r["val_per_client"][c][metric] for c in clients) for r in results])
     eps = [r["privacy"]["epsilon"] for r in results if "privacy" in r]
     if eps:
         summary["epsilon"] = _mean_std(eps)
@@ -66,7 +68,8 @@ def fmt(stat: dict) -> str:
 
 
 def table(exp_dirs: list[Path], with_test: bool) -> str:
-    header = ["Experiment", "Val acc.", "Val bal. acc.", "Val macro-F1", "Worst client val acc."]
+    header = ["Experiment", "Val acc.", "Val bal. acc.", "Val macro-F1", "Worst client val acc.",
+              "Worst client val bal. acc."]
     if with_test:
         header += ["Test acc.", "Test bal. acc.", "Test macro-F1"]
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
@@ -74,6 +77,7 @@ def table(exp_dirs: list[Path], with_test: bool) -> str:
         s = summarize_experiment(d, quiet=True)
         row = [d.name] + [fmt(s["val"][m]) for m, _ in METRICS]
         row.append(fmt(s["val_worst_client_accuracy"]))
+        row.append(fmt(s["val_worst_client_balanced_accuracy"]))
         if with_test:
             row += [fmt(s["test"][m]) for m, _ in METRICS]
         lines.append("| " + " | ".join(row) + " |")

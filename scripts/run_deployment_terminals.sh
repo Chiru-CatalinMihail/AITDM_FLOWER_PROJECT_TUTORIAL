@@ -69,7 +69,7 @@ if [ "$TERMINAL" = none ]; then
 ERROR: no supported terminal program found.
   * Desktop Linux / WSL2 with a GUI:  sudo apt install xterm
   * No GUI (SSH, WSL without GUI):    sudo apt install tmux
-  * Or start the components by hand, one terminal each (docs/02_running_flower.md),
+  * Or start the components by hand, one terminal each (Local/Linux/02_running_flower.md),
     or use: bash scripts/run_deployment_local.sh
 EOF
     exit 1

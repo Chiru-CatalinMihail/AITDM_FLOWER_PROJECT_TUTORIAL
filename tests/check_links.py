@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
+FILES = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md")),
+         *sorted((ROOT / "Local").rglob("*.md")), *sorted((ROOT / "Fep").glob("*.md"))]
 LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)\)")
 
 
