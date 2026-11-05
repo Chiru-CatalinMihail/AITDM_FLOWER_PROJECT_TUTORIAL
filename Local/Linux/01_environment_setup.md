@@ -6,8 +6,8 @@ everything in a **virtual environment** (venv) that lives in the project folder.
 
 ## Requirements
 
-* **Linux or macOS.** On **Windows, use WSL2**: open PowerShell as administrator, run
-  `wsl --install`, reboot, open the "Ubuntu" app and follow this guide inside it.
+* **Linux or macOS.** On **Windows, use WSL2**: see [Local/Wsl](../Wsl/README.md) first
+  (installing WSL2, and Python 3.11+ on older Ubuntu versions), then follow this guide inside it.
 * **Python 3.11, 3.12 or 3.13** (Flower needs ≥ 3.11). Check with `python3 --version`.
   * Ubuntu: `sudo apt install python3.12 python3.12-venv`
   * macOS: `brew install python@3.12`
@@ -123,7 +123,7 @@ Any environment manager works as long as you install `requirements.txt` into it:
 
 | Problem | Fix |
 |---|---|
-| `ERROR: Python 3.11-3.13 required` | Install a supported Python and use `PYTHON=python3.12 bash scripts/setup_env.sh` |
+| `ERROR: Python 3.11-3.13 required` | Install a supported Python and use `PYTHON=python3.12 bash scripts/setup_env.sh`. No `sudo` (or an old Ubuntu, e.g. 20.04 / 22.04)? Install [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh \| sh`): the script then gets Python 3.12 from it by itself ([details](../Wsl/README.md#3-python-311-the-main-wsl-difference)) |
 | `The virtual environment was not created successfully because ensurepip is not available` | `sudo apt install python3.12-venv` (match your Python version) |
 | Very large download / disk full | Use `--cpu`; delete `.venv/` and start again |
 | `CUDA available: False` but you have a GPU | Re-create the venv without `--cpu`; check `nvidia-smi` works |
