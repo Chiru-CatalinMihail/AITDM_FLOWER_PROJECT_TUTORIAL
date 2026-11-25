@@ -2,8 +2,7 @@
 
 After every round the server receives one model update per client and has to turn them into **one** global model.
 
-That step is the *aggregation strategy*. It is the server's main lever
-for the trust dimensions in the project:
+That step is the *aggregation strategy*. It is the server's main lever for the trust dimensions in the project:
 
 | Goal | Problem | Strategies in this repo |
 |---|---|---|
@@ -18,9 +17,12 @@ Every strategy is chosen at run time. **No code changes are needed:**
 bash scripts/run_simulation.sh data/partitions/dirichlet "strategy='krum'"
 ```
 
+Run the commands from the repository root, with the virtual environment active.
+The first argument is the partition folder; the quoted second argument is passed to `flwr run` as `--run-config`.
+On fep, put the same line in your Slurm job script (see [the fep tutorial](../Fep/02_running_on_slurm.md)).
+
 The strategies come from `flwr.serverapp.strategy`. They are created in `build_strategy()` in
-[`fl_app/aitdm_fl/server_app.py`](../fl_app/aitdm_fl/server_app.py), and their
-hyperparameters live in [`fl_app/pyproject.toml`](../fl_app/pyproject.toml).
+[`fl_app/aitdm_fl/server_app.py`](../fl_app/aitdm_fl/server_app.py), and their hyperparameters live in [`fl_app/pyproject.toml`](../fl_app/pyproject.toml).
 
 ---
 
@@ -47,7 +49,7 @@ It is simple, communication-efficient (McMahan et al., 2017) and works well on I
 **Weak spots:** strong non-IID data (client drift), a single malicious client can move the average arbitrarily far ([see the experiment below](#experiment-1-attacker-out-of-5-clients)), and large clients dominate.
 
 ```bash
---run-config "strategy='fedavg'"
+bash scripts/run_simulation.sh data/partitions/dirichlet "strategy='fedavg'"
 ```
 
 ## 2. Strategies for non-IID data
@@ -63,25 +65,113 @@ $$
 The server side is identical to FedAvg. Flower only sends `proximal-mu` to the clients, and **our `train()` in `task.py` adds the penalty** (look for `proximal_mu`). $\mu = 0$ is FedAvg; a larger $\mu$ means less drift but slower local progress. (Li et al., 2020).
 
 ```bash
---run-config "strategy='fedprox' proximal-mu=0.1"
+bash scripts/run_simulation.sh data/partitions/dirichlet "strategy='fedprox' proximal-mu=0.1"
 ```
 
 ### FedAvgM (`fedavgm`)
 
 Applies **momentum on the server**: the averaged update is accumulated over rounds like SGD momentum, which smooths the zig-zag caused by heterogeneous clients. (Hsu et al., 2019)
 
+The clients still send weights. The server averages them, $\bar w = \sum_k \frac{n_k}{n} w_t^k$, and turns the average into an update:
+
+$$
+\Delta_t = \bar w - w_t
+$$
+
+$\Delta_t$ is how far the clients moved, on average, in this round (like a *pseudo-gradient*).
+
+FedAvgM instead keeps a **momentum buffer** $u_t$ across rounds, with $\beta$ = `server-momentum` (**hyperparameter**):
+
+
+
+$$
+u_t = \beta\, u_{t-1} + \Delta_t \qquad 
+$$
+
+with the initial condition:
+$$
+u_1 = \Delta_1
+$$
+
+Then the model is updated using the momentum buffer:
+$$
+w_{t+1} = w_t + \eta\, u_t
+$$
+
+Unrolled, $u_t = \Delta_t + \beta \Delta_{t-1} + \beta^2 \Delta_{t-2} + \dots$: the step is a sum of all past updates, older ones weighted less.
+
+* Directions the clients agree on round after round add up, so the model moves faster along them.
+* Directions that flip sign between rounds (the zig-zag of non-IID clients) largely cancel out.
+* If $\Delta_t$ stays the same, $u_t \xrightarrow[t\to\infty]{} \frac{\Delta_t}{1-\beta}$. With $\beta = 0.9$ the step is up to **10×** the FedAvg step, so in a random case a too-large $\beta$ can overshoot.
+
+$\eta$ is server's "learning rate".
+
+Our `build_strategy()` leaves it at Flower's default $\eta = 1$ (`server-lr` only affects FedAdam / FedYogi), so with $\beta = 0$ FedAvgM is exactly FedAvg.
+
+In the original Flower implementation, the implementation is given in the opposite sign, as in SGD: it uses $g_t = w_t - \bar w = -\Delta_t$, a momentum vector $\beta\, v_{t-1} + g_t$, and the step $w_{t+1} = w_t - \eta\, v_t$.
+
 ```bash
---run-config "strategy='fedavgm' server-momentum=0.9"
+bash scripts/run_simulation.sh data/partitions/dirichlet "strategy='fedavgm' server-momentum=0.9"
 ```
 
 ### FedAdam / FedYogi (`fedadam`, `fedyogi`): adaptive federated optimisation
 
-Treats the averaged update as a "pseudo-gradient" and applies **Adam** (or Yogi, a more stable Adam variant) on the server, with its own learning rate $\eta$ = `server-lr`.
+Treats the averaged update as a "pseudo-gradient" and applies **Adam** (or Yogi, a more stable Adam variant) on the server, with its own learning rate $\eta$ = `server-lr` (**hyperparameter**).
 
 This often helps on heterogeneous data, but adds a hyperparameter to tune. (Reddi et al., 2021 - ("FedOpt")).
 
+**The clients still send weights**, exactly as in FedAvg. Only what the server does with their average changes:
+
+1. **Average the client models**: $\bar w = \sum_k \frac{n_k}{n} w_t^k$.
+
+2. **Turn the average into an update:**
+
+   $$
+   \Delta_t = \bar w - w_t
+   $$
+
+  
+3. **Apply Adam to $\Delta_t$**, element-wise (every weight separately). The server keeps two running averages across rounds, both starting at 0:
+
+   $$
+   m_t = \beta_1 m_{t-1} + (1-\beta_1)\,\Delta_t \qquad \text{(direction, like momentum)}
+   $$
+
+   $$
+   v_t = \beta_2 v_{t-1} + (1-\beta_2)\,\Delta_t^2 \qquad \text{(typical squared size of the step)}
+   $$
+
+   and updates the global model:
+
+   $$
+   w_{t+1} = w_t + \eta_t \,\frac{m_t}{\sqrt{v_t} + \tau}
+   $$
+
+   Flower's defaults are $\beta_1 = 0.9$, $\beta_2 = 0.99$ and $\tau = 10^{-3}$ (in `FedAdam` / `FedYogi`; we only set $\eta$).
+
+  $\tau$ is the small constant added to the denominator to prevent division by zero and also to stabilise the next update when both $m_t$ and $v_t$ are very small.
+
+   For FedAdam, $\eta_t$ is $\eta$ with Adam's bias correction, $\eta_t = \eta \frac{\sqrt{1-\beta_2^{\,t+1}}}{1-\beta_1^{\,t+1}}$, without it the first rounds would take too small steps, because $m$ and $v$ start at 0.
+
+**What this means in practice:** dividing by $\sqrt{v_t}$ normalises the step of every weight.
+A weight the clients move a lot and one they barely move both change by roughly $\eta$ per round, no matter how  large $\Delta_t$ is.
+With `server-lr=0.01` each weight moves by about 0.01 per round at most, which is why $\eta$ has to be tuned: too small and the model barely changes, too large and it overshoots.
+$m_t$ averages out the zig-zag between rounds in which the clients pull in different directions.
+
+**FedYogi** changes only the $v_t$ line in FedAdam. 
+Adam's $v_t$ decays towards the new $\Delta_t^2$ by a fraction $(1-\beta_2)$ of the *gap* $v_{t-1} - \Delta_t^2$.
+Yogi moves it by $(1-\beta_2)\Delta_t^2$ in the direction of $\Delta_t^2$, independent of the gap:
+
+$$
+v_t = v_{t-1} + (1-\beta_2)\,\Delta_t^2 \,\operatorname{sign}\!\left(\Delta_t^2 - v_{t-1}\right)
+$$
+
+So when one round's update is much smaller than the earlier ones, $v_t$ does not collapse at once, and the step $\eta\frac{m_t}{\sqrt{v_t}}$ does not suddenly jump up.
+The update of $w$ is the same as above; Flower's `FedYogi` uses $\eta$ without the bias correction from `FedAdam`.
+
 ```bash
---run-config "strategy='fedadam' server-lr=0.01"
+bash scripts/run_simulation.sh data/partitions/dirichlet "strategy='fedadam' server-lr=0.01"
+bash scripts/run_simulation.sh data/partitions/dirichlet "strategy='fedyogi' server-lr=0.01"
 ```
 
 ## 3. Robust (Byzantine-tolerant) aggregation
@@ -190,13 +280,67 @@ DP-FedAvg does).
 
 Clients with a **higher loss get a larger weight**, proportional to $F_k^q$, where $F_k$ is the loss of client $k$.
 
-With $q = 0$ this is FedAvg; a larger $q$ pushes towards equal performance across clients (a more uniform accuracy distribution) at the cost of some average accuracy. (Li et al., 2020 - ("q-FFL")).
+With $q = 0$ every client counts the same (close to FedAvg, see below); a larger $q$ pushes towards equal performance across clients (a more uniform accuracy distribution) at the cost of average accuracy. (Li et al., 2020 - ("q-FFL")).
 
 ```bash
---run-config "strategy='qfedavg' qfedavg-q=1.0"
+bash scripts/run_simulation.sh data/partitions/dirichlet "strategy='qfedavg' qfedavg-q=1.0"
 ```
 
-`qfedavg-client-lr` (default 1.0) sets the step size: Flower estimates the Lipschitz constant as $L = 1 / \text{lr}$, with $\text{lr}$ = `qfedavg-client-lr`. With a too-small value (e.g. our Adam learning rate 0.001) the global model barely moves.
+**The objective.** FedAvg minimises the average loss $\sum_k \frac{n_k}{n} F_k(w)$. q-FFL minimises instead
+
+$$
+\min_w \; \sum_k \frac{1}{q+1}\, F_k(w)^{\,q+1}
+$$
+
+Raising the losses to the power $q+1$ makes the clients with a high loss count much more, like moving from the mean towards the maximum.
+
+**What the clients send.** :
+
+* their locally trained weights $w_t^k$ (the `"arrays"` record),
+* `train_loss`, used as $F_k$: the average training loss of the local epochs,
+* `num-examples`, which q-FedAvg **does not use** for the weights (only to average the reported metrics).
+
+The original paper uses the loss of the *global* model $w_t$ on the client's data, before training.
+Our `train_loss` is measured during training, so it is somewhat lower, but it ranks the clients the same way: a client whose training derived from the global model fits badly still has a high loss.
+
+**What the server computes.** With $L = 1$ `qfedavg-client-lr` (the Lipschitz constant estimate), for every client:
+
+$$
+g_k = L\,(w_t - w_t^k)
+$$
+
+$g_k$ estimates the client's gradient: if local training had been one gradient step with learning rate $\frac{1}{L}$, then $w_t^k = w_t - \frac{1}{L} g_k$ exactly. From it:
+
+$$
+d_k = F_k^{\,q}\, g_k \qquad\qquad h_k = q\,F_k^{\,q-1}\,\lVert g_k \rVert^2 + L\,F_k^{\,q}
+$$
+
+Here $F_k$ is a single number (the loss), while $d_k$ and $g_k$ have one entry per weight. In terms of the update $\Delta^k = w_t^k - w_t$ from the notation, $g_k = -L\,\Delta^k$ and $d_k = -L\,F_k^{\,q}\,\Delta^k$.
+
+The new global model is
+
+$$
+w_{t+1} = w_t - \frac{\sum_k d_k}{\sum_k h_k}
+$$
+
+**Why this is a loss-weighted average.** Ignore the $\lVert g_k \rVert^2$ term in $h_k$ for a moment. Then $\sum_k h_k = L \sum_k F_k^{\,q}$ and the update simplifies to
+
+$$
+w_{t+1} = \sum_k p_k\, w_t^k \qquad\text{with}\qquad p_k = \frac{F_k^{\,q}}{\sum_j F_j^{\,q}}
+$$
+
+a weighted average of the client models in which client $k$'s weight grows with $F_k^{\,q}$.
+For example, with $q = 1$ a client with loss 2.0 counts twice as much as one with loss 1.0; with $q = 2$, four times as much.
+
+The $\lVert g_k \rVert^2$ term only makes $\sum_k h_k$ larger, so it **shrinks** the step from $w_t$ towards that average.
+It is a safety margin from the analysis (q-FFL's objective is less smooth than FedAvg's), and it grows when the clients moved far from $w_t$.
+
+**Two consequences:**
+
+* **$q = 0$ is not exactly our FedAvg.** Then $h_k = L$ and $p_k = 1/K$: every client counts the same, regardless of its dataset size $n_k$.
+* **`qfedavg-client-lr` sets the step size.** A small value means a large $L$, and since $\lVert g_k \rVert^2$ contains $L^2$, the shrinking term dominates and the step shrinks roughly like $1/L$.
+  This is why our Adam learning rate (0.001, so $L = 1000$) would make the global model barely move, and why the default is 1.0.
+
 
 To **measure** fairness, compare per-client metrics: evaluate the final model on every `client_<i>.npz` and report the worst client, or the standard deviation across clients, next to the mean.
 
@@ -213,8 +357,8 @@ Setting `dp-noise-multiplier > 0` wraps **any** strategy in
    Otherwise one large client could dominate the average and the privacy analysis would not hold.
 
 ```bash
---run-config "dp-noise-multiplier=1.0 dp-clipping-norm=1.0"
---run-config "strategy='fedmedian' dp-noise-multiplier=1.0"   # DP + robustness
+bash scripts/run_simulation.sh data/partitions/dirichlet "dp-noise-multiplier=1.0 dp-clipping-norm=1.0"
+bash scripts/run_simulation.sh data/partitions/dirichlet "strategy='fedmedian' dp-noise-multiplier=1.0"   # DP + robustness
 ```
 
 **The privacy budget $\varepsilon$ is computed for you.** For FedAvg-style strategies (`fedavg`, `fedprox`), the server attaches Flower's Rényi-DP accountant (needs the `flwr[dp]` extra, which is already in `requirements.txt`). It prints the cumulative budget after every round and stores it in `metrics.json` under `"privacy"`:
