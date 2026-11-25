@@ -4,7 +4,7 @@
 #
 # Install with the helper script (recommended):
 #   bash scripts/setup_env.sh          (add --cpu for a CPU-only PyTorch)
-# Windows users: run everything inside WSL2 (Ubuntu), see docs/01_environment_setup.md
+# Windows users: run everything inside WSL2 (Ubuntu), see Local/Wsl/README.md
 # ---------------------------------------------------------------------------
 
 # --- Federated learning (Flower) ------------------------------------------

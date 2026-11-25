@@ -31,7 +31,7 @@ The code is the same everywhere; only the setup and the way you start runs diffe
 | Where you work | Guides |
 |---|---|
 | **Your own Linux or macOS machine** | [Local/Linux](Local/Linux/README.md): [setup](Local/Linux/01_environment_setup.md), [running Flower](Local/Linux/02_running_flower.md) |
-| **Windows (WSL2)** | [Local/Wsl](Local/Wsl/README.md) (for now, follow the Linux guides inside WSL2) |
+| **Windows (WSL2)** | [Local/Wsl](Local/Wsl/README.md): install WSL2, Python 3.11+ without sudo (old Ubuntu), then the Linux guides inside it |
 | **The university cluster fep (Slurm)** | [Fep](Fep/README.md): [setup](Fep/01_environment_setup.md), [running with Slurm](Fep/02_running_on_slurm.md) |
 
 Tutorials 3 to 6 (in [`docs/`](docs/)) are the same on every system.
@@ -134,7 +134,7 @@ AITDM_FLOWER_PROJECT_TUTORIAL/
 ├── dirichlet_explorer.html      <- interactive 3D Dirichlet distribution (open it in a browser)
 ├── Local/
 │   ├── Linux/                   <- tutorials 1 and 2 for your own machine (Linux, macOS)
-│   └── Wsl/                     <- Windows / WSL2 notes
+│   └── Wsl/                     <- Windows / WSL2: setup and what differs from Linux
 ├── Fep/                         <- tutorials 1 and 2 for the fep cluster
 │   ├── setup_fep.sh             <- .venv + links data/, outputs/, logs/ to ~/AITDM_Project
 │   ├── submit.sh                <- submit a job of Fep/jobs/ (sbatch wrapper)
