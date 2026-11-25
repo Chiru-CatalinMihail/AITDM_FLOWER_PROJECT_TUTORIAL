@@ -17,6 +17,8 @@ lightning_logs/
 *.pt
 *.pth
 *.fab
+*.swp
+
 
 # OS / editor
 .DS_Store
